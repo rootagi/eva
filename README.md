@@ -16,13 +16,33 @@ The design goal is practical: keep routine terminal work fast and local, "Can't 
 
 <br clear="left"/>
 
-<h2 align="center">Eva</h2>
+<h2 align="center">Quick Demo</h2>
 
 <p align="center">
-  <a href="https://github.com/rootagi/eva/releases/download/v0.1.0/demo.mp4">
     <img src="assets/demo.gif" alt="Eva CLI Demo" width="900">
   </a>
 </p>
+<h3 align="center">"Forgot a command?". Ask eva </h3>
+<p align="center">
+    <img src="assets/demo2.gif" alt="Eva CLI Demo" width="900">
+  </a>
+</p>
+<h3 align="center">"Need help understanding terminal output?". Ask eva </h3>
+<p align="center">
+    <img src="assets/demo3.gif" alt="Eva CLI Demo" width="900">
+  </a>
+</p>
+<h3 align="center">"Want to patch a script?". Ask eva </h3>
+<p align="center">
+    <img src="assets/demo4.gif" alt="Eva CLI Demo" width="900">
+  </a>
+</p>
+<h3 align="center">"Need a chatbot?". Just eva </h3>
+<p align="center">
+    <img src="assets/demo5.gif" alt="Eva CLI Demo" width="900">
+  </a>
+</p>
+
 
 ## Highlights
 
