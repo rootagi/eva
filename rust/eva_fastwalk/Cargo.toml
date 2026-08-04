@@ -1,0 +1,13 @@
+[package]
+name = "eva_fastwalk"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "eva_fastwalk"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.21", features = ["extension-module", "abi3-py310"] }
+ignore = "0.4"
+glob = "0.3"
