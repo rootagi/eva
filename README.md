@@ -27,7 +27,7 @@ The design goal is practical: keep routine terminal work fast and local, "Can't 
     <img src="assets/demo2.gif" alt="Eva CLI Demo" width="900">
   </a>
 </p>
-<h3 align="center">"Need help understanding terminal output?". Ask eva </h3>
+<h3 align="center">"Need help understanding any command output?". Ask eva </h3>
 <p align="center">
     <img src="assets/demo3.gif" alt="Eva CLI Demo" width="900">
   </a>
