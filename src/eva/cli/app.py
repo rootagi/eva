@@ -1,6 +1,7 @@
 import importlib.metadata
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import typer
@@ -30,7 +31,6 @@ from eva.prompts import (
     EXPLAIN_SYSTEM_PROMPT,
     WORK_SYSTEM_PROMPT,
 )
-import time
 from eva.providers import dispatch, get_provider
 from eva.replay import display_replay_session, list_replay_sessions, record_replay_event
 from eva.security import run_sandboxed
