@@ -3,9 +3,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import logging
 
 from eva.config import get_config_dir
 from eva.security.redaction import redact_secrets
+
+logger = logging.getLogger(__name__)
 
 GENESIS_HASH = "0" * 64
 
@@ -50,8 +53,12 @@ def append_command_audit(entry: dict[str, Any], log_file: Path | None = None):
                     last_record = json.loads(lines[-1])
                     last_hash = last_record.get("hash", GENESIS_HASH)
                     seq = last_record.get("seq", len(lines)) + 1
-                except Exception:
-                    pass
+                except (json.JSONDecodeError, ValueError, TypeError) as exc:
+                    # If last record is malformed or unexpected type, start a new chain
+                    logger.warning(
+                        "Failed to parse last audit log record; starting new chain. error=%s",
+                        exc,
+                    )
 
     payload = {
         "seq": seq,
