@@ -31,8 +31,8 @@ jobs:
       - name: Check code formatting
         run: ruff format --check .
 
-      - name: Run test suite
-        run: pytest -v
+      - name: Run test suite with 85% coverage gate
+        run: pytest -v --cov=eva --cov-report=term-missing --cov-fail-under=85
 
   docker:
     runs-on: ubuntu-latest
