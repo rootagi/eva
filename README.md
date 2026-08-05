@@ -185,21 +185,36 @@ eva grep "dispatch" src/eva
 | Command | Purpose |
 | --- | --- |
 | `eva ask` | Ask a one-shot question, optionally with file or directory context. |
-| `eva explain` | Explain a file or directory. |
+| `eva explain` | Explain a file, concept, or repository (with stack detection & module dependency graph). |
 | `eva analyse` / `eva analyze` | Analyze piped terminal output. |
 | `eva chat` | Run an interactive chat session, optionally saved and resumed. |
 | `eva work` | Generate and optionally execute a single safe local command. |
 | `eva edit` | Generate a unified diff for one or more files. |
+| `eva workflow run` | Walk through a declarative multi-step YAML workflow with human approval gates. |
+| `eva workflow list` | List available built-in and user-defined workflows. |
+| `eva workflow show` | Display workflow steps and commands without executing them. |
+| `eva workspace` | Manage isolated session workspaces, notes, and bookmarks. |
+| `eva workspace create` | Create a new named session workspace. |
+| `eva workspace switch` | Switch to a named session workspace. |
+| `eva workspace list` | List all session workspaces. |
+| `eva workspace note` | Add a note to the active workspace (secrets redacted automatically). |
+| `eva workspace bookmark` | Bookmark a file path or URL in the active workspace. |
+| `eva workspace show` | Display notes, bookmarks, and activity history for a workspace. |
+| `eva replay` | Replay recorded terminal execution sessions (`eva replay <session>` or `eva replay --list`). |
 | `eva changes` | Explain unstaged or staged git changes. |
 | `eva commit-message` | Generate a concise commit message from a git diff. |
 | `eva find` | Find files locally without AI usage. |
 | `eva tree` | Print a `.gitignore`-aware directory tree. |
 | `eva grep` | Run `ripgrep` through Eva’s CLI. |
 | `eva usage` | Show normalized local provider usage counters. |
-| `eva providers` | Show provider configuration, model selection, and quotas. |
 | `eva doctor` | Check keyring, config, provider registration, API keys, and local tools. |
+
+| `eva config set-key <provider>` | Store an API key in the OS keyring. |
+| `eva config remove-key <provider>` | Delete a stored API key from the OS keyring. |
+| `eva config set-model <provider> <model>` | Set active model for a provider. |
 | `eva config` | Manage provider, model, and API-key configuration. |
 | `eva cache clear` | Clear cached AI responses. |
+
 
 Global options:
 
@@ -210,19 +225,24 @@ eva --verbose ask "Why did this fail?"
 
 Verbose mode writes diagnostics to stderr and to Eva’s log file.
 
-## Safety model
+## Safety model & Production Hardening
 
-`eva work` is intentionally conservative:
+`eva work` and `eva workflow` are intentionally conservative:
 
 - model output must resolve to exactly one command line;
 - malformed Markdown fences and trailing explanations are rejected;
 - shell operators such as pipes, redirects, command substitution, and chained commands are rejected;
 - high-risk patterns such as `sudo`, `rm -rf`, `curl | bash`, `dd`, `mkfs`, recursive ownership changes, and system-path redirects are blocked;
-- commands run with `subprocess.run(argv)` rather than `shell=True`;
-- unattended execution requires both `--yes` and `EVA_WORK_ASSUME_YES=1`;
-- every generated, blocked, declined, or executed command is recorded in an audit log.
+- secrets, API keys, tokens, and high-entropy strings are redacted before any network request and before writing to local disk;
+- every generated, blocked, declined, or executed command is recorded in a **cryptographic hash-chained audit log** with SHA-256 tamper verification;
+- optional **sandboxed execution** (`sandbox_risky_commands = true` in config) runs commands in a stripped subprocess environment with environment variable isolation and strict timeouts.
 
-This is not a sandbox. Review generated commands and patches before applying them.
+See [`SECURITY.md`](SECURITY.md) for full security documentation.
+
+## Opt-in Telemetry
+
+Eva collects **zero** data by default (`telemetry_enabled = false`). When explicitly opted-in via configuration, Eva records only anonymized provider response latency, error types, and success status. Prompt text, code snippets, file contents, and terminal commands are **never** collected. An optional self-hosted export endpoint is supported via `telemetry_export_endpoint`.
+
 
 ## Provider behavior
 
@@ -234,6 +254,8 @@ Configured providers:
 - Groq
 - Gemini
 - OpenCode Zen
+- Ollama (offline local backend)
+- llama.cpp (offline GGUF backend)
 
 ## Development
 
