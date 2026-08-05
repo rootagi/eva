@@ -1,16 +1,14 @@
 # Eva CLI
 
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 
-[![License](https://img.shields.io/github/license/rootagi/eva?style=for-the-badge)](LICENSE)
-
-[![Build](https://img.shields.io/github/actions/workflow/status/rootagi/eva/ci.yml?style=for-the-badge&label=Build)](https://github.com/rootagi/eva/actions)
-
-[![CLI](https://img.shields.io/badge/CLI-Terminal-111827?style=for-the-badge&logo=gnubash&logoColor=white)](#usage)
-
-[![Code Style](https://img.shields.io/badge/Code%20Style-Ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
-
-[![Status](https://img.shields.io/badge/Status-Active%20Development-F59E0B?style=for-the-badge)](CHANGELOG.md)
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/rootagi/eva?style=for-the-badge"></a>
+  <a href="https://github.com/rootagi/eva/actions"><img src="https://img.shields.io/github/actions/workflow/status/rootagi/eva/ci.yaml?style=for-the-badge&label=Build"></a>
+  <a href="#usage"><img src="https://img.shields.io/badge/CLI-Terminal-111827?style=for-the-badge&logo=gnubash&logoColor=white"></a>
+  <a href="https://docs.astral.sh/ruff/"><img src="https://img.shields.io/badge/Code%20Style-Ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Status-Active%20Development-F59E0B?style=for-the-badge"></a>
+</p>
 
 <img src="assets/logo.png" alt="Eva Logo" align="left" width="160" />
 
