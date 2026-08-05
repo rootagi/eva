@@ -1,6 +1,7 @@
 [project]
 name = "eva"
-version = "2.2.0"
+version = "3.0.0"
+
 description = "Command Line Intelligence"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,12 +20,16 @@ dependencies = [
     "openai>=1.40.0,<3.0.0",
     "google-genai>=0.1.0,<2.0.0",
     "tomli>=2.0.0,<3.0.0",
-    "tomli-w>=1.0.0,<2.0.0"
+    "tomli-w>=1.0.0,<2.0.0",
+    "pyyaml>=6.0.0,<7.0.0"
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0,<10.0.0",
+    "pytest-cov>=5.0.0,<8.0.0",
+    "hypothesis>=6.0.0,<7.0.0",
+    "respx>=0.21.0,<1.0.0",
     "ruff>=0.5.0,<1.0.0",
 ]
 
@@ -34,6 +39,9 @@ target-version = "py310"
 
 [tool.ruff.lint]
 ignore = ["B008"]
+
+[tool.pytest.ini_options]
+addopts = "-v --cov=eva --cov-report=term-missing --cov-fail-under=85"
 
 [project.scripts]
 eva = "eva.cli:app"
