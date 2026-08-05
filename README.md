@@ -1,11 +1,16 @@
 # Eva CLI
 
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![CLI](https://img.shields.io/badge/interface-terminal-111827.svg)](#usage)
-[![CI](https://img.shields.io/badge/ci-github%20actions-2088FF.svg)](.github/workflows/ci.yml)
-[![Code style](https://img.shields.io/badge/code%20style-ruff-46A5F3.svg)](https://docs.astral.sh/ruff/)
-[![Status](https://img.shields.io/badge/status-active%20development-orange.svg)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+
+[![License](https://img.shields.io/github/license/rootagi/eva?style=for-the-badge)](LICENSE)
+
+[![Build](https://img.shields.io/github/actions/workflow/status/rootagi/eva/ci.yml?style=for-the-badge&label=Build)](https://github.com/rootagi/eva/actions)
+
+[![CLI](https://img.shields.io/badge/CLI-Terminal-111827?style=for-the-badge&logo=gnubash&logoColor=white)](#usage)
+
+[![Code Style](https://img.shields.io/badge/Code%20Style-Ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
+
+[![Status](https://img.shields.io/badge/Status-Active%20Development-F59E0B?style=for-the-badge)](CHANGELOG.md)
 
 <img src="assets/logo.png" alt="Eva Logo" align="left" width="160" />
 
@@ -54,7 +59,7 @@ The design goal is practical: keep routine terminal work fast and local, "Can't 
 - Hardened command generation via `eva work`: strict parsing, risk checks, no `shell=True`, dry-run mode, and audit logging.
 - Git-aware workflows for explaining diffs and generating commit messages.
 - Reviewable patch generation with `eva edit`.
-- Health checks through `eva doctor`.
+- Health checks through `eva config doctor`.
 - Persistent chat sessions with `eva chat --session`.
 
 ## Installation
@@ -99,7 +104,7 @@ export EVA_OPENCODE_ZEN_API_KEY="..."
 Check the local setup:
 
 ```bash
-eva doctor
+eva config doctor
 ```
 
 ## Usage
@@ -177,7 +182,7 @@ Local utility commands do not use LLM quota:
 ```bash
 eva find "*.py"
 eva tree src/eva
-eva grep "dispatch" src/eva
+
 ```
 
 ## Command reference
@@ -205,9 +210,8 @@ eva grep "dispatch" src/eva
 | `eva commit-message` | Generate a concise commit message from a git diff. |
 | `eva find` | Find files locally without AI usage. |
 | `eva tree` | Print a `.gitignore`-aware directory tree. |
-| `eva grep` | Run `ripgrep` through Eva’s CLI. |
 | `eva usage` | Show normalized local provider usage counters. |
-| `eva doctor` | Check keyring, config, provider registration, API keys, and local tools. |
+
 
 | `eva config set-key <provider>` | Store an API key in the OS keyring. |
 | `eva config remove-key <provider>` | Delete a stored API key from the OS keyring. |
