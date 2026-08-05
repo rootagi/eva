@@ -102,8 +102,8 @@ def detect_stack(root_dir: str | Path) -> ProjectStack:
                     for pkg in ["django", "flask", "fastapi", "pytest", "torch", "tensorflow", "pydantic", "typer", "rich", "ruff"]:
                         if pkg in clean:
                             deps.add(pkg)
-            except Exception:
-                pass
+            except OSError as exc:
+                logger.debug("Failed reading pyproject.toml at %s: %s", pyproject, exc)
 
         if reqs.exists():
             try:
@@ -112,17 +112,15 @@ def detect_stack(root_dir: str | Path) -> ProjectStack:
                     pkg = line.split("==")[0].split(">=")[0].split("<=")[0].strip().lower()
                     if pkg and not pkg.startswith("#"):
                         deps.add(pkg)
-            except Exception:
-                pass
+            except OSError as exc:
+                logger.debug("Failed reading requirements.txt at %s: %s", reqs, exc)
 
         for dep in deps:
             stack.dependencies.append(dep)
-            if dep in {"django", "flask", "fastapi", "streamlit"}:
-                if dep.capitalize() not in stack.frameworks:
-                    stack.frameworks.append(dep.capitalize())
-            if dep in {"pytest", "unittest"}:
-                if dep not in stack.test_frameworks:
-                    stack.test_frameworks.append(dep)
+            if dep in {"django", "flask", "fastapi", "streamlit"} and dep.capitalize() not in stack.frameworks:
+                stack.frameworks.append(dep.capitalize())
+            if dep in {"pytest", "unittest"} and dep not in stack.test_frameworks:
+                stack.test_frameworks.append(dep)
 
         if "pytest" not in stack.test_frameworks and (root / "conftest.py").exists() or (root / "tests").is_dir():
             stack.test_frameworks.append("pytest")
@@ -147,8 +145,8 @@ def detect_stack(root_dir: str | Path) -> ProjectStack:
                     stack.frameworks.append(dep)
                 if dep in {"jest", "vitest", "mocha", "cypress"}:
                     stack.test_frameworks.append(dep)
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.debug("Failed reading package.json at %s: %s", pkg_json, exc)
 
     # Rust stack detection
     cargo_toml = root / "Cargo.toml"
@@ -223,7 +221,7 @@ def build_dep_graph(root_dir: str | Path) -> DepGraph:
                         if any(m.startswith(base) for m in module_names):
                             imports.add(node.module)
         except SyntaxError:
-            pass
+            logger.debug("Syntax error parsing imports in %s", p)
         except Exception as exc:
             logger.debug("Failed parsing imports in %s: %s", p, exc)
 
