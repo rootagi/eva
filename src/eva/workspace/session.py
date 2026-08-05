@@ -42,8 +42,9 @@ def get_active_workspace() -> str:
             name = f.read_text(encoding="utf-8").strip()
             if name:
                 return name
-        except Exception:
-            pass
+        except OSError as exc:
+            # File could not be read — use default but log at debug so we can troubleshoot if needed
+            logger.debug("Could not read active workspace file %s: %s", f, exc)
     return "default"
 
 
@@ -91,17 +92,23 @@ def get_workspace(name: str) -> WorkspaceSession:
         try:
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
             created_at = meta.get("created_at", created_at)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Failed to read/parse workspace meta %s: %s", meta_file, exc)
     else:
-        meta_file.write_text(json.dumps({"name": safe_name, "created_at": created_at}, indent=2), encoding="utf-8")
+        try:
+            meta_file.write_text(json.dumps({"name": safe_name, "created_at": created_at}, indent=2), encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Failed to write meta file %s: %s", meta_file, exc)
 
     # Load notes
     notes = []
     notes_file = wdir / "notes.md"
     if notes_file.exists():
-        content = notes_file.read_text(encoding="utf-8", errors="replace")
-        notes = [n.strip() for n in content.split("\n--- Note ---\n") if n.strip()]
+        try:
+            content = notes_file.read_text(encoding="utf-8", errors="replace")
+            notes = [n.strip() for n in content.split("\n--- Note ---\n") if n.strip()]
+        except OSError as exc:
+            logger.debug("Could not read notes file %s: %s", notes_file, exc)
 
     # Load bookmarks
     bookmarks = []
@@ -109,8 +116,8 @@ def get_workspace(name: str) -> WorkspaceSession:
     if bm_file.exists():
         try:
             bookmarks = json.loads(bm_file.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.debug("Failed to read/parse bookmarks %s: %s", bm_file, exc)
 
     # Load history
     history = []
@@ -118,11 +125,16 @@ def get_workspace(name: str) -> WorkspaceSession:
     if hist_file.exists():
         try:
             with open(hist_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip():
+                for lineno, line in enumerate(f, start=1):
+                    if not line.strip():
+                        continue
+                    try:
                         history.append(json.loads(line))
-        except Exception:
-            pass
+                    except json.JSONDecodeError as exc:
+                        # Skip malformed history lines but log at debug level
+                        logger.debug("Skipping invalid JSON in %s line %d: %s", hist_file, lineno, exc)
+        except OSError as exc:
+            logger.debug("Could not open history file %s: %s", hist_file, exc)
 
     return WorkspaceSession(
         name=safe_name,
@@ -162,13 +174,16 @@ def add_bookmark(name: str, path_str: str):
     if bm_file.exists():
         try:
             bookmarks = json.loads(bm_file.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.debug("Failed to read bookmarks file %s: %s", bm_file, exc)
 
     clean_path = redact_secrets(path_str.strip())
     if clean_path not in bookmarks:
         bookmarks.append(clean_path)
-        bm_file.write_text(json.dumps(bookmarks, indent=2), encoding="utf-8")
+        try:
+            bm_file.write_text(json.dumps(bookmarks, indent=2), encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Failed to write bookmarks file %s: %s", bm_file, exc)
 
 
 def add_history(name: str, entry_type: str, content: str):
@@ -181,5 +196,8 @@ def add_history(name: str, entry_type: str, content: str):
         "content": redact_secrets(content),
     }
 
-    with open(hist_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+    try:
+        with open(hist_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except OSError as exc:
+        logger.warning("Failed to append to history file %s: %s", hist_file, exc)
