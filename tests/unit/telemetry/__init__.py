@@ -1,1 +1,0 @@
-"""Telemetry unit tests package."""

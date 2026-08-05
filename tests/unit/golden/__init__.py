@@ -1,1 +1,0 @@
-"""Golden-file tests package."""

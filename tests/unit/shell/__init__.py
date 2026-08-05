@@ -1,1 +1,0 @@
-"""Shell unit tests package."""
