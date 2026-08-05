@@ -41,7 +41,6 @@ from eva.security.work_safety import (
     get_command_audit_log,
     parse_safe_command,
 )
-
 from eva.telemetry.diagnostics import setup_logging
 from eva.ui.formatter import is_ai_error, print_error, print_info, print_markdown, print_success
 from eva.ui.streaming import stream_response
