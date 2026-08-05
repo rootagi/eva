@@ -1,11 +1,14 @@
 import json
 from pathlib import Path
 from typing import Any
+import logging
 
 from rich.console import Console
 from rich.table import Table
 
 from eva.replay.recorder import get_replays_dir, get_session_dir
+
+logger = logging.getLogger(__name__)
 
 
 def list_replay_sessions(replays_dir: Path | None = None) -> list[dict[str, Any]]:
@@ -25,13 +28,15 @@ def list_replay_sessions(replays_dir: Path | None = None) -> list[dict[str, Any]
                 try:
                     meta = json.loads(meta_file.read_text(encoding="utf-8"))
                     created_at = meta.get("created_at", created_at)
-                except Exception:
-                    pass
+                except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    logger.debug("Failed reading session meta %s: %s", meta_file, exc)
             if events_file.exists():
                 try:
-                    count = len([line for line in events_file.read_text(encoding="utf-8").splitlines() if line.strip()])
-                except Exception:
-                    pass
+                    text = events_file.read_text(encoding="utf-8")
+                    count = len([line for line in text.splitlines() if line.strip()])
+                except (OSError, UnicodeDecodeError) as exc:
+                    logger.debug("Failed reading events file %s: %s", events_file, exc)
+                    count = 0
             sessions.append(
                 {
                     "session_id": d.name,
