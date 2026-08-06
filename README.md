@@ -11,7 +11,7 @@
   <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Status-Active%20Development-F59E0B?style=for-the-badge"></a>
 </p>
 
-<img src="assets/logo.png" alt="Eva Logo" align="left" width="160" />
+<img src="assets/eva.png" alt="Eva Logo" align="left" width="160" />
 
 Eva is a command line intelligence assistant. It uses deterministic local tools for file discovery, tree generation, search, configuration, caching, and quota tracking, while reserving LLM calls for natural-language reasoning, summarization, code review, command generation, and patch generation.
 
