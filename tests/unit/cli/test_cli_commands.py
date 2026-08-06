@@ -65,8 +65,6 @@ def test_cli_analyze_custom_prompt():
         assert mock_dispatch.call_args[0][1] == "Highlight high-severity secret exposures"
 
 
-
-
 def test_cli_work_dry_run():
     with patch.object(app_module, "dispatch", return_value=iter(["ls -la"])):
         res = runner.invoke(app, ["work", "list files", "--dry-run"])
