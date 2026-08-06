@@ -48,10 +48,23 @@ def test_cli_analyze_command(tmp_path):
     f = tmp_path / "error.log"
     f.write_text("ERROR: Out of memory", encoding="utf-8")
 
-    with patch.object(app_module, "dispatch", return_value=iter(["Analysis of error"])):
+    with patch.object(app_module, "dispatch", return_value=iter(["Analysis of error"])) as mock_dispatch:
         res = runner.invoke(app, ["analyze", "-f", str(f)])
         assert res.exit_code == 0
         assert "Analysis of error" in res.stdout
+        mock_dispatch.assert_called_once()
+        assert mock_dispatch.call_args[0][1] == "Analyze the provided content, identify issues, and suggest solutions."
+
+
+def test_cli_analyze_custom_prompt():
+    with patch.object(app_module, "dispatch", return_value=iter(["Custom analysis result"])) as mock_dispatch:
+        res = runner.invoke(app, ["analyze", "Highlight high-severity secret exposures"], input="secret_key = 12345\n")
+        assert res.exit_code == 0
+        assert "Custom analysis result" in res.stdout
+        mock_dispatch.assert_called_once()
+        assert mock_dispatch.call_args[0][1] == "Highlight high-severity secret exposures"
+
+
 
 
 def test_cli_work_dry_run():
