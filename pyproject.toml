@@ -46,6 +46,10 @@ addopts = "-v --cov=eva --cov-report=term-missing --cov-fail-under=85"
 [project.scripts]
 eva = "eva.cli:app"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/eva"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
