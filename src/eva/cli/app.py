@@ -196,6 +196,7 @@ def explain(
 
 @app.command()
 def analyze(
+    prompt: list[str] = typer.Argument(None, help="Custom prompt or focus instructions for analysis"),
     files: list[Path] = typer.Option(None, "--file", "-f", help="Files to analyze"),
     provider: str | None = typer.Option(None, "--provider", "-p", help="Pin to a specific provider"),
 ):
@@ -217,13 +218,14 @@ def analyze(
         print_error("Provide files with -f or pipe stdout into 'eva analyze'.")
         raise typer.Exit(1)
 
-    query = "Analyze the provided content, identify issues, and suggest solutions."
+    query = " ".join(prompt) if prompt else "Analyze the provided content, identify issues, and suggest solutions."
     stream = dispatch(ANALYZE_SYSTEM_PROMPT, query, context, config, pinned_provider=provider)
     result = stream_response(stream)
     if is_ai_error(result):
         print_error(result.strip())
         raise typer.Exit(1)
     print_markdown(result)
+
 
 
 @app.command()
@@ -676,6 +678,7 @@ def show_budget():
 @workflow_app.command("run")
 def workflow_run_cmd(
     name: str = typer.Argument(..., help="Workflow name or YAML file path"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Auto-approve all steps without interactive prompts"),
     provider: str | None = typer.Option(None, "--provider", "-p", help="Pin to a specific provider"),
 ):
     """Walk through workflow steps with an approval gate between each step."""
@@ -686,7 +689,7 @@ def workflow_run_cmd(
         print_error(str(exc))
         raise typer.Exit(1) from exc
 
-    results = run_workflow(wf, config=config, interactive=True)
+    results = run_workflow(wf, config=config, interactive=not yes)
     failed = [r for r in results if r.get("status") in {"failed", "blocked_unsafe", "blocked_ambiguous"}]
     if failed:
         raise typer.Exit(1)
