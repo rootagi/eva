@@ -1,5 +1,5 @@
 [project]
-name = "eva"
+name = "eva-cli"
 version = "3.0.0"
 
 description = "Command Line Intelligence"
