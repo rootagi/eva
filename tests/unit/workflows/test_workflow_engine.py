@@ -145,3 +145,10 @@ def test_workflow_cli_commands():
 
     res_show_fail = runner.invoke(app, ["workflow", "show", "non_existent_wf"])
     assert res_show_fail.exit_code == 1
+
+
+def test_workflow_cli_run_yes_flag():
+    res_run = runner.invoke(app, ["workflow", "run", "repo_health", "-y"])
+    assert res_run.exit_code == 0
+    assert "Starting Workflow: repo_health" in res_run.stderr or "Starting Workflow: repo_health" in res_run.stdout
+
