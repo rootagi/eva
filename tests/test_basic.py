@@ -29,7 +29,7 @@ def test_tree_command():
 def test_version_flag():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "Eva 3.0.0" in result.stdout
+    assert "Eva 3.0.1" in result.stdout
 
 
 def test_work_parser_rejects_trailing_fenced_explanation():
