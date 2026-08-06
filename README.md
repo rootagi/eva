@@ -1,3 +1,4 @@
+[Uploading README.md…]()
 # Eva CLI
 
 
@@ -62,7 +63,28 @@ The design goal is practical: keep routine terminal work fast and local, "Can't 
 
 ## Installation
 
-From a local checkout:
+Eva requires Python 3.10 or newer.
+
+**Quick install:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rootagi/eva/main/install.sh | sh
+```
+
+**Or with a package manager, once published to PyPI:**
+
+```bash
+uv tool install eva-cli    # or: pipx install eva-cli / pip install --user eva-cli
+```
+
+**Or with Docker (no Python required):**
+
+```bash
+docker run --rm -it -v "$(pwd):/workspace" -e EVA_OPENAI_API_KEY="$OPENAI_API_KEY" \
+  ghcr.io/rootagi/eva chat
+```
+
+**From a local checkout (for contributing):**
 
 ```bash
 python -m pip install -e .
@@ -73,8 +95,6 @@ For development:
 ```bash
 python -m pip install -e ".[dev]"
 ```
-
-Eva requires Python 3.10 or newer.
 
 ## Configuration
 
