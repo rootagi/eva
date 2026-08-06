@@ -227,7 +227,6 @@ def analyze(
     print_markdown(result)
 
 
-
 @app.command()
 def chat(
     provider: str | None = typer.Option(None, "--provider", "-p", help="Pin to a specific provider"),
