@@ -151,4 +151,3 @@ def test_workflow_cli_run_yes_flag():
     res_run = runner.invoke(app, ["workflow", "run", "repo_health", "-y"])
     assert res_run.exit_code == 0
     assert "Starting Workflow: repo_health" in res_run.stderr or "Starting Workflow: repo_health" in res_run.stdout
-
