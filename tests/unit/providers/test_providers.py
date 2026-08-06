@@ -51,11 +51,17 @@ def test_openrouter_get_free_models_mocked():
 
 @respx.mock
 def test_opencode_zen_get_free_models_mocked():
+    from eva.cache import get_cache
+    from eva.providers.opencode_zen_provider import MODEL_CACHE_KEY
+    with get_cache() as cache:
+        cache.delete(MODEL_CACHE_KEY)
+
     respx.get("https://opencode.ai/zen/v1/models").respond(json={"data": [{"id": "big-pickle"}, {"id": "paid-model"}]})
 
     free_models = get_opencode_models()
     assert len(free_models) == 1
     assert free_models[0]["id"] == "big-pickle"
+
 
 
 def test_gemini_provider_missing_key(monkeypatch, mock_config):
