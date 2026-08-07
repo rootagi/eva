@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # Eva CLI installer
-# Usage:
-#   curl -fsSL https://<your-domain>/install.sh | sh
+
 set -euo pipefail
 
-# ---- CONFIGURE THESE ----
-PACKAGE="eva-cli"   # <-- the name you actually publish to PyPI (must be available; "eva" is taken)
+PACKAGE="eva-cli"  
 BIN="eva"
 # --------------------------
 
