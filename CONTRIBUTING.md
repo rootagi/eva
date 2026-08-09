@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Eva! This document provides guide
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/eva-cli.git
+git clone https://github.com/rootagi/eva
 cd eva-cli
 
 # Create and activate a virtual environment
@@ -73,7 +73,6 @@ src/eva/
 
 ### 🟡 Medium Difficulty
 
-- **Local Model Support (Ollama / llama.cpp / vLLM):** Add a new provider that connects to a local LLM server. This would allow fully offline usage. The provider should implement the `Provider` protocol from `eva/router/__init__.py` and register itself. Ollama exposes an OpenAI-compatible API, so subclassing `OpenAICompatibleProvider` from `eva/router/openai_compat.py` would be the easiest approach.
 - **`eva review` Command:** Implement a multi-file code review command that collects context from multiple files and generates a structured review.
 - **`eva test` Command:** Generate unit tests for specified files using the LLM.
 - **Cost Estimation:** Show estimated cost before sending paid-tier requests.
