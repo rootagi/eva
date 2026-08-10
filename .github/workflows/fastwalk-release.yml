@@ -56,10 +56,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13     # Intel
+          - runner: macos-latest  # Intel (cross-compiled)
             target: x86_64
-          - runner: macos-14     # Apple Silicon
+          - runner: macos-latest  # Apple Silicon
             target: aarch64
+
     steps:
       - uses: actions/checkout@v4
       - name: Build wheel
