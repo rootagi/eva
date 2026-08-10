@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white"></a>
+  <a href="https://eva-cli.vercel.app/docs"><img src="https://img.shields.io/badge/Docs-eva--cli.vercel.app%2Fdocs-000000?style=for-the-badge&logo=vercel&logoColor=white"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/rootagi/eva?style=for-the-badge"></a>
   <a href="https://github.com/rootagi/eva/actions"><img src="https://img.shields.io/github/actions/workflow/status/rootagi/eva/ci.yaml?style=for-the-badge&label=Build"></a>
   <a href="#usage"><img src="https://img.shields.io/badge/CLI-Terminal-111827?style=for-the-badge&logo=gnubash&logoColor=white"></a>
@@ -16,6 +17,8 @@
 Eva is a command line intelligence assistant. It uses deterministic local tools for file discovery, tree generation, search, configuration, caching, and quota tracking, while reserving LLM calls for natural-language reasoning, summarization, code review, command generation, and patch generation.
 
 The design goal is practical: keep routine terminal work fast and local, "Can't remember the right command... Don't leave CLI just for a single command and simple work insted ask eva directly from your CLI"
+
+📖 **Website & Documentation**: Full interactive documentation is available at [eva-cli.vercel.app/docs](https://eva-cli.vercel.app/docs) (or offline in the [`docs/`](docs/) directory).
 
 
 <br clear="left"/>
@@ -370,6 +373,7 @@ Run the same checks in CI by pushing to a branch or opening a pull request. See 
 
 ## Project files
 
+- [`docs`](docs) — documentation suite ([eva-cli.vercel.app/docs](https://eva-cli.vercel.app/docs)).
 - [`pyproject.toml`](pyproject.toml) — package metadata, dependencies, and tooling.
 - [`CHANGELOG.md`](CHANGELOG.md) — release history.
 - [`LICENSE`](LICENSE) — MIT license.
