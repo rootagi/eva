@@ -1,4 +1,5 @@
 import json
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,6 +9,8 @@ from pydantic import BaseModel, Field
 from eva.config import get_config_dir
 
 __all__ = ["get_config_dir"]
+
+_budget_thread_lock = threading.RLock()
 
 
 class UsageStats(BaseModel):
@@ -30,20 +33,34 @@ def get_budget_lock_file() -> Path:
 
 @contextmanager
 def _locked_budget_file():
-    lock_file = get_budget_lock_file()
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        import fcntl
-    except ImportError:
-        yield
-        return
-
-    with open(lock_file, "a+") as lock:
+    with _budget_thread_lock:
+        lock_file = get_budget_lock_file()
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            yield
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            import fcntl
+
+            with open(lock_file, "a+") as lock:
+                try:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                    yield
+                finally:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        except ImportError:
+            try:
+                import msvcrt
+
+                with open(lock_file, "a+") as lock:
+                    try:
+                        msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+                        yield
+                    finally:
+                        try:
+                            lock.seek(0)
+                            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                        except OSError:
+                            pass
+            except (ImportError, OSError):
+                yield
 
 
 def _load_budget_unlocked() -> Budget:
@@ -51,9 +68,15 @@ def _load_budget_unlocked() -> Budget:
     if not budget_file.exists():
         return Budget()
 
-    with open(budget_file, "r") as f:
-        data = json.load(f)
-    return Budget(**data)
+    try:
+        with open(budget_file, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if not content:
+                return Budget()
+            data = json.loads(content)
+        return Budget(**data)
+    except (json.JSONDecodeError, ValueError, OSError):
+        return Budget()
 
 
 def load_budget() -> Budget:
