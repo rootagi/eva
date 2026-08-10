@@ -85,11 +85,14 @@ err_console = Console(stderr=True)
 
 def _get_version() -> str:
     try:
-        return importlib.metadata.version("eva-cli")
-    except importlib.metadata.PackageNotFoundError:
         from eva import __version__
 
         return __version__
+    except (ImportError, AttributeError):
+        try:
+            return importlib.metadata.version("eva-cli")
+        except importlib.metadata.PackageNotFoundError:
+            return "unknown"
 
 
 def version_callback(value: bool):

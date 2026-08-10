@@ -62,10 +62,11 @@ def test_work_dry_run_explain(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.toml"
     monkeypatch.setattr("eva.config.config.get_config_file", lambda: cfg_file)
 
-    # Mock dispatch imported in app module
-    import eva.providers
+    # Mock dispatch in both app module and providers module
+    import sys
 
-    monkeypatch.setattr(eva.providers, "dispatch", lambda *args, **kwargs: iter(["git status"]))
+    monkeypatch.setattr(sys.modules["eva.cli.app"], "dispatch", lambda *args, **kwargs: iter(["git status"]))
+    monkeypatch.setattr("eva.providers.dispatch", lambda *args, **kwargs: iter(["git status"]))
 
     res = runner.invoke(app, ["work", "check status", "--dry-run-explain"])
     assert res.exit_code == 0
