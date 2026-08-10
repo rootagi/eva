@@ -39,7 +39,7 @@ def is_ignored(path: Path, root_dir: Path, spec: pathspec.PathSpec | None) -> bo
         if spec is None:
             return False
 
-        rel = str(rel_path)
+        rel = rel_path.as_posix()
         if path.is_dir() and not rel.endswith("/"):
             rel += "/"
         return spec.match_file(rel)

@@ -6,10 +6,10 @@ from typer.testing import CliRunner
 import eva.budget as budget_module
 from eva.budget import check_and_increment, load_budget
 from eva.cli import app
-from eva.context.gitignore import get_gitignore_spec, is_ignored
-from eva.context.tokenizer import trim_context
-from eva.context.tree import generate_tree
+from eva.indexing.tokenizer import trim_context
+from eva.indexing.tree import generate_tree
 from eva.work_safety import CommandExtractionError, parse_safe_command
+from eva.workspace.gitignore import get_gitignore_spec, is_ignored
 
 runner = CliRunner()
 
@@ -27,9 +27,11 @@ def test_tree_command():
 
 
 def test_version_flag():
+    from eva import __version__
+
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "Eva 3.0.1" in result.stdout
+    assert f"Eva {__version__}" in result.stdout
 
 
 def test_work_parser_rejects_trailing_fenced_explanation():
@@ -41,12 +43,12 @@ def test_work_parser_rejects_trailing_fenced_explanation():
 def test_work_parser_allows_multiline():
     parsed = parse_safe_command("echo hello\necho world")
     assert parsed.command == "echo hello\necho world"
-    assert parsed.argv == []
+    assert parsed.argv == ["echo", "hello", "echo", "world"]
 
 
 def test_work_parser_returns_empty_argv_for_clean_command():
     parsed = parse_safe_command("ls -la src")
-    assert parsed.argv == []
+    assert parsed.argv == ["ls", "-la", "src"]
 
 
 def test_trim_context_can_keep_tail():

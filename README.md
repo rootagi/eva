@@ -77,6 +77,18 @@ curl -fsSL https://raw.githubusercontent.com/rootagi/eva/main/install.sh | sh
 uv tool install eva-cli    # or: pipx install eva-cli / pip install --user eva-cli
 ```
 
+For the Rust-accelerated file walker, once published:
+```bash
+uv tool install "eva-cli[fast]"
+```
+
+
+**Shell completion setup (bash, zsh, fish):**
+
+```bash
+eva --install-completion
+```
+
 **Or with Docker (no Python required):**
 
 ```bash
@@ -265,6 +277,18 @@ See [`SECURITY.md`](SECURITY.md) for full security documentation.
 
 Eva collects **zero** data by default (`telemetry_enabled = false`). When explicitly opted-in via configuration, Eva records only anonymized provider response latency, error types, and success status. Prompt text, code snippets, file contents, and terminal commands are **never** collected. An optional self-hosted export endpoint is supported via `telemetry_export_endpoint`.
 
+## Cross-platform support & limitations
+
+Eva is tested across Linux (`ubuntu-latest`), macOS (`macos-latest`), and Windows (`windows-latest`):
+
+- **Path Handling**: Eva normalizes file paths to POSIX format internally for `.gitignore` pattern matching and diff operations across all operating systems.
+- **Credential Storage**: On Linux/macOS/Windows desktops with a native keyring backend (macOS Keychain, Windows Credential Manager, D-Bus SecretService), `eva config set-key` stores secrets securely in the OS keyring. In headless Linux/CI runners without a D-Bus secret service, keyring access degrades gracefully to provider environment variables (e.g. `EVA_GROQ_API_KEY`).
+- **Shell Execution & Command Safety**:
+  - `eva work` and sandboxed subprocess execution adjust argument splitting (`shlex`) for Windows command semantics.
+  - POSIX-specific blast-radius protection patterns (e.g. `rm -rf /`, `chmod/chown`, `curl | bash`, `/dev/*` writes) are tailored for Unix shells (`sh`, `bash`, `zsh`). On Windows (`cmd.exe` / `powershell.exe`), equivalent high-risk command prevention relies on interactive confirmation gates and sandbox execution.
+- **Performance Accelerators**: The optional `eva_fastwalk` C/Rust extension accelerates directory tree generation and file discovery when compiled binaries exist for the platform; on platforms without binary wheels, Eva seamlessly falls back to Python standard library directory traversal (`os.walk` / `Path.iterdir`).
+
+
 
 ## Provider behavior
 
@@ -278,6 +302,49 @@ Configured providers:
 - OpenCode Zen
 - Ollama (offline local backend)
 - llama.cpp (offline GGUF backend)
+
+## Plugins
+
+Eva CLI features an extensible plugin system. Third-party packages can register CLI commands, contribute custom AI providers, or register workflow step hooks by creating standard Python packages with entry points.
+
+### Writing a Plugin
+
+1. Subclass `EvaPlugin` from `eva.plugins`:
+
+```python
+import typer
+from eva.plugins import EvaPlugin
+
+
+class MyPlugin(EvaPlugin):
+    name = "my-plugin"
+    version = "0.1.0"
+
+    def register_commands(self, app: typer.Typer) -> None:
+        @app.command("my-command")
+        def my_command():
+            """Custom command contributed by plugin."""
+            typer.echo("Hello from my plugin!")
+
+    def register_providers(self) -> None:
+        # Register custom LLM provider implementations here
+        pass
+```
+
+2. Expose the plugin in your package's `pyproject.toml` under `[project.entry-points."eva.plugins"]`:
+
+```toml
+[project.entry-points."eva.plugins"]
+my_plugin = "my_package.module:MyPlugin"
+```
+
+3. Install your package into the environment (`pip install .` or `pip install -e .`). Eva automatically discovers installed plugins via `importlib.metadata.entry_points` on startup.
+
+### Fail-Soft Safety
+
+If an installed plugin fails to load or raises an exception during initialization, Eva logs a warning and skips the broken plugin without interrupting CLI operation.
+
+See [`examples/eva-plugin-hello`](examples/eva-plugin-hello) for a complete example plugin package.
 
 ## Development
 

@@ -36,8 +36,10 @@ class GeneralConfig(BaseModel):
         default_factory=lambda: ["openrouter", "groq", "gemini", "opencode_zen", "ollama", "llamacpp"]
     )
     sandbox_risky_commands: bool = False
+    allowed_command_prefixes: list[str] = Field(default_factory=list)
     telemetry_enabled: bool = False
     telemetry_export_endpoint: str | None = None
+    tiktoken_encoding_path: str | None = None  # EVA_TIKTOKEN_ENCODING_PATH
 
 
 class AppConfig(BaseModel):
@@ -120,10 +122,10 @@ def clear_api_key(provider: str):
 def keyring_backend_available() -> tuple[bool, str]:
     try:
         backend = keyring.get_keyring()
-        keyring.get_password(APP_NAME, "__doctor_probe__")
         priority = getattr(backend, "priority", None)
+        if priority is not None and priority <= 0:
+            return False, f"No usable keyring backend (priority={priority}): {backend.__class__.__name__}"
+        keyring.get_password(APP_NAME, "__doctor_probe__")
         return True, f"{backend.__class__.__module__}.{backend.__class__.__name__} priority={priority}"
-    except NoKeyringError as exc:
-        return False, str(exc)
-    except KeyringError as exc:
+    except (NoKeyringError, KeyringError, RuntimeError, TypeError, AttributeError, ValueError) as exc:
         return False, str(exc)

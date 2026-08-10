@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[project]
+# This is the PyPI *install* name: `pip install eva-fastwalk`.
+# The Cargo [lib] name stays "eva_fastwalk" — that's what users `import`.
+# (Same pattern as pip install pyyaml -> import yaml.)
+name = "eva-fastwalk"
+description = "Fast gitignore-aware file walking for Eva, written in Rust"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "License :: OSI Approved :: MIT License",
+]
+# Version is NOT duplicated here — maturin reads it from Cargo.toml's
+# [package] version so there's one source of truth. Bump it there.
+dynamic = ["version"]
+
+[tool.maturin]
+# Strip debug symbols from the release build to keep wheels small.
+strip = true

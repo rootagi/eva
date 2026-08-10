@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Eva! This document provides guide
 
 ```bash
 # Clone the repository
-git clone https://github.com/rootagi/eva
+git clone https://github.com/your-org/eva-cli.git
 cd eva-cli
 
 # Create and activate a virtual environment
@@ -73,6 +73,7 @@ src/eva/
 
 ### 🟡 Medium Difficulty
 
+- **Local Model Support (Ollama / llama.cpp / vLLM):** Add a new provider that connects to a local LLM server. This would allow fully offline usage. The provider should implement the `Provider` protocol from `eva/router/__init__.py` and register itself. Ollama exposes an OpenAI-compatible API, so subclassing `OpenAICompatibleProvider` from `eva/router/openai_compat.py` would be the easiest approach.
 - **`eva review` Command:** Implement a multi-file code review command that collects context from multiple files and generates a structured review.
 - **`eva test` Command:** Generate unit tests for specified files using the LLM.
 - **Cost Estimation:** Show estimated cost before sending paid-tier requests.
@@ -87,12 +88,12 @@ src/eva/
 
 ## Adding a New Provider
 
-1. Create a new file in `src/eva/router/` (e.g., `ollama_provider.py`).
+1. Create a new file in `src/eva/providers/` (e.g., `ollama_provider.py`).
 2. If the provider exposes an OpenAI-compatible API, subclass `OpenAICompatibleProvider` from `openai_compat.py`.
 3. If it uses a different SDK, implement the `Provider` protocol directly (see `gemini_provider.py` as an example).
 4. Register the provider at the bottom of your file:
    ```python
-   from eva.router import register_provider
+   from eva.providers import register_provider
 
    register_provider(YourProvider())
    ```

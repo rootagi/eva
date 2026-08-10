@@ -1,0 +1,121 @@
+# .github/workflows/fastwalk-release.yml
+#
+# Triggers on a tag like: fastwalk-v0.1.0
+#   git tag fastwalk-v0.1.0 && git push origin fastwalk-v0.1.0
+#
+# Separate from release.yml (main `eva` package) on purpose — this crate
+# changes rarely and needs a real per-platform build matrix, so it gets
+# its own version number and its own tag prefix.
+#
+# One wheel per platform covers all of Python 3.10+ because Cargo.toml
+# already builds pyo3 with the "abi3-py310" feature (stable ABI).
+#
+# Before first use: register rootagi/eva as a trusted publisher for the
+# "eva-fastwalk" PyPI project (pypi.org -> project -> Publishing),
+# workflow filename fastwalk-release.yml, environment name "pypi".
+
+name: Release eva_fastwalk
+
+on:
+  push:
+    tags: ["fastwalk-v*"]
+
+permissions:
+  id-token: write   # PyPI trusted publishing (OIDC)
+
+jobs:
+  linux:
+    name: Linux wheels (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64
+          - runner: ubuntu-24.04-arm
+            target: aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: rust/eva_fastwalk
+          target: ${{ matrix.target }}
+          args: --release --out ../../dist -i python3.10
+          manylinux: auto
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist
+
+  macos:
+    name: macOS wheels (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13     # Intel
+            target: x86_64
+          - runner: macos-14     # Apple Silicon
+            target: aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: rust/eva_fastwalk
+          target: ${{ matrix.target }}
+          args: --release --out ../../dist -i python3.10
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}
+          path: dist
+
+  windows:
+    name: Windows wheel
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: rust/eva_fastwalk
+          target: x64
+          args: --release --out ../../dist -i python3.10
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows
+          path: dist
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: rust/eva_fastwalk
+          command: sdist
+          args: --out ../../dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  publish:
+    name: Publish to PyPI
+    needs: [linux, macos, windows, sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

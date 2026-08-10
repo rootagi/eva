@@ -147,7 +147,22 @@ def test_workflow_cli_commands():
     assert res_show_fail.exit_code == 1
 
 
-def test_workflow_cli_run_yes_flag():
-    res_run = runner.invoke(app, ["workflow", "run", "repo_health", "-y"])
-    assert res_run.exit_code == 0
-    assert "Starting Workflow: repo_health" in res_run.stderr or "Starting Workflow: repo_health" in res_run.stdout
+def test_workflow_cli_run_yes_flag(tmp_path):
+    import os
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, capture_output=True, check=True)
+    (tmp_path / "file.txt").write_text("hello", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True, check=True)
+
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        res_run = runner.invoke(app, ["workflow", "run", "repo_health", "-y"])
+        assert res_run.exit_code == 0
+        assert "Starting Workflow: repo_health" in res_run.stderr or "Starting Workflow: repo_health" in res_run.stdout
+    finally:
+        os.chdir(old_cwd)

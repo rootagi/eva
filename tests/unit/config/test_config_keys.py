@@ -82,3 +82,35 @@ def test_keyring_backend_available_failure():
     with patch("keyring.get_keyring", side_effect=NoKeyringError()):
         ok, _ = keyring_backend_available()
         assert ok is False
+
+
+def test_keyring_backend_available_zero_priority():
+    with patch("keyring.get_keyring") as mock_get:
+        mock_backend = MagicMock()
+        mock_backend.priority = 0
+        mock_backend.__class__.__name__ = "FailKeyring"
+        mock_get.return_value = mock_backend
+        ok, info = keyring_backend_available()
+        assert ok is False
+        assert "priority=0" in info
+
+
+def test_keyring_fallback_degradation_behavior(monkeypatch):
+    """Explicitly verify that when keyring is unavailable, Eva degrades gracefully to documented fallback."""
+    # 1. Environment variable fallback works when env var is present
+    monkeypatch.setenv("EVA_GROQ_API_KEY", "env-secret-123")
+    with patch("keyring.get_password", side_effect=NoKeyringError()):
+        assert get_api_key("groq") == "env-secret-123"
+
+    # 2. When env var is missing and keyring is unavailable, get_api_key returns None
+    monkeypatch.delenv("EVA_GROQ_API_KEY", raising=False)
+    with patch("keyring.get_password", side_effect=NoKeyringError()):
+        assert get_api_key("groq") is None
+
+    # 3. set_api_key raises KeyringUnavailableError instructing user to set env var
+    with (
+        patch("keyring.set_password", side_effect=NoKeyringError()),
+        pytest.raises(KeyringUnavailableError) as exc_info,
+    ):
+        set_api_key("groq", "new-key")
+    assert "EVA_GROQ_API_KEY" in str(exc_info.value)

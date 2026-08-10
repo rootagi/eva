@@ -19,6 +19,18 @@ def test_run_sandboxed_basic_command(tmp_path):
     assert "hello sandbox" in res.stdout
 
 
+def test_run_sandboxed_argv_vs_shell(tmp_path):
+    # Without allow_shell_features, pipes are literal arguments to echo (not evaluated by shell)
+    res_argv = run_sandboxed("echo hello | grep hello", cwd=tmp_path, allow_shell_features=False)
+    assert res_argv.returncode == 0
+    assert "|" in res_argv.stdout  # argv echo receives '|', 'grep', 'hello' as string args
+
+    # With allow_shell_features, shell evaluates the pipe
+    res_shell = run_sandboxed("echo hello | grep hello", cwd=tmp_path, allow_shell_features=True)
+    assert res_shell.returncode == 0
+    assert res_shell.stdout.strip() == "hello"
+
+
 def test_run_sandboxed_timeout(tmp_path):
     res = run_sandboxed("sleep 2", cwd=tmp_path, timeout=0.1)
     assert res.returncode == 124

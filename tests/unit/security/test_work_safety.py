@@ -2,10 +2,14 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from eva.config import GeneralConfig
 from eva.security.work_safety import (
+    AllowlistViolationError,
     CommandExtractionError,
     ParsedCommand,
     UnsafeCommandError,
+    check_command_allowlist,
+    explain_safety_checks,
     extract_single_command,
     parse_safe_command,
 )
@@ -107,6 +111,7 @@ def test_routine_patterns_and_operators_allowed(routine_cmd):
     parsed = parse_safe_command(routine_cmd)
     assert isinstance(parsed, ParsedCommand)
     assert parsed.command == routine_cmd
+    assert len(parsed.argv) > 0  # argv populated by shlex
 
 
 @given(
@@ -117,3 +122,53 @@ def test_hypothesis_routine_commands_pass(safe_tool, arg):
     cmd = f"{safe_tool} {arg}"
     parsed = parse_safe_command(cmd)
     assert parsed.command == cmd
+
+
+# 4. Opt-in allowlist tests
+def test_general_config_allowlist_default():
+    cfg = GeneralConfig()
+    assert cfg.allowed_command_prefixes == []
+
+
+def test_allowlist_disabled_when_empty():
+    parsed = parse_safe_command("git status", allowed_prefixes=[])
+    assert parsed.command == "git status"
+    assert parsed.argv == ["git", "status"]
+
+
+def test_allowlist_permits_matching_prefixes():
+    prefixes = ["git", "npm", "ls", "cat"]
+    p1 = parse_safe_command("git status", allowed_prefixes=prefixes)
+    assert p1.command == "git status"
+    assert p1.argv == ["git", "status"]
+
+    p2 = parse_safe_command("npm test", allowed_prefixes=prefixes)
+    assert p2.command == "npm test"
+
+    p3 = parse_safe_command("ls -la", allowed_prefixes=prefixes)
+    assert p3.command == "ls -la"
+
+
+def test_allowlist_blocks_non_matching_prefixes():
+    prefixes = ["git", "npm", "ls", "cat"]
+
+    with pytest.raises(AllowlistViolationError):
+        parse_safe_command("python main.py", allowed_prefixes=prefixes)
+
+    with pytest.raises(AllowlistViolationError):
+        parse_safe_command("rm -rf tmp/", allowed_prefixes=prefixes)
+
+    with pytest.raises(AllowlistViolationError):
+        check_command_allowlist("docker run hello-world", prefixes)
+
+
+def test_explain_safety_checks_transparency():
+    # Test passed explain checks
+    checks = explain_safety_checks("git status", allowed_prefixes=["git"])
+    assert len(checks) == 4
+    assert all(chk["passed"] for chk in checks)
+
+    # Test failed allowlist check
+    checks_failed = explain_safety_checks("python main.py", allowed_prefixes=["git"])
+    assert checks_failed[2]["check"] == "Command Allowlist"
+    assert checks_failed[2]["passed"] is False

@@ -1,0 +1,16 @@
+[project]
+name = "eva-plugin-hello"
+version = "0.1.0"
+description = "Example plugin for Eva CLI adding a hello command"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "eva-cli",
+]
+
+[project.entry-points."eva.plugins"]
+hello = "eva_plugin_hello:HelloPlugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

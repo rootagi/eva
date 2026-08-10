@@ -1,5 +1,6 @@
 import importlib.metadata
 import os
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -38,6 +39,7 @@ from eva.security.work_safety import (
     CommandExtractionError,
     UnsafeCommandError,
     append_command_audit,
+    explain_safety_checks,
     get_command_audit_log,
     parse_safe_command,
 )
@@ -61,7 +63,7 @@ from eva.workspace.session import (
 app = typer.Typer(
     name="eva",
     help="Eva — Command Line Intelligence",
-    add_completion=False,
+    add_completion=True,
 )
 config_app = typer.Typer(help="Manage Eva configuration and API keys.")
 budget_app = typer.Typer(help="Inspect rate limits and token budget usage.")
@@ -72,6 +74,10 @@ app.add_typer(config_app, name="config")
 app.add_typer(budget_app, name="budget")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(workspace_app, name="workspace")
+
+from eva.plugins import load_plugins
+
+_loaded_plugins = load_plugins(app)
 
 console = Console()
 err_console = Console(stderr=True)
@@ -244,6 +250,12 @@ def work(
     provider: str | None = typer.Option(None, "--provider", "-p", help="Pin to a specific provider"),
     auto_confirm: bool = typer.Option(False, "--yes", "-y", help="Auto-confirm execution"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Generate and audit the command without executing it"),
+    dry_run_explain: bool = typer.Option(
+        False, "--dry-run-explain", help="Print safety checks passed/failed before executing"
+    ),
+    allow_shell_features: bool = typer.Option(
+        False, "--allow-shell-features", help="Allow shell features (pipes, redirects) via shell execution"
+    ),
 ):
     """Execute a command generated from natural language."""
     config = load_config()
@@ -267,8 +279,36 @@ def work(
         print_error(model_output.strip())
         raise typer.Exit(1)
 
+    if dry_run_explain:
+        checks = explain_safety_checks(model_output, config.general.allowed_command_prefixes)
+        from rich.table import Table
+
+        table = Table(title="Command Safety Checks Summary")
+        table.add_column("Safety Check", style="cyan")
+        table.add_column("Status", style="yellow")
+        table.add_column("Details", style="magenta")
+
+        all_passed = True
+        for chk in checks:
+            status = "[green]PASSED[/green]" if chk["passed"] else "[red]FAILED[/red]"
+            table.add_row(chk["check"], status, chk["detail"])
+            if not chk["passed"]:
+                all_passed = False
+
+        console.print(table)
+        append_command_audit(
+            {
+                "query": query_str,
+                "model_output": model_output,
+                "executed": False,
+                "dry_run_explain": True,
+                "passed_all_checks": all_passed,
+            }
+        )
+        return
+
     try:
-        parsed = parse_safe_command(model_output)
+        parsed = parse_safe_command(model_output, allowed_prefixes=config.general.allowed_command_prefixes)
     except UnsafeCommandError as exc:
         append_command_audit(
             {
@@ -306,7 +346,7 @@ def work(
 
         if config.general.sandbox_risky_commands:
             print_info("[Eva Sandbox] Executing command in restricted sandbox environment...")
-            res = run_sandboxed(parsed.command, cwd=Path.cwd())
+            res = run_sandboxed(parsed.command, cwd=Path.cwd(), allow_shell_features=allow_shell_features)
             returncode = getattr(res, "returncode", 0)
             stdout_str = res.stdout if isinstance(getattr(res, "stdout", None), str) else ""
             stderr_str = res.stderr if isinstance(getattr(res, "stderr", None), str) else ""
@@ -316,7 +356,14 @@ def work(
                 err_console.print(stderr_str, end="")
             output_str = stdout_str + ("\n" + stderr_str if stderr_str else "")
         else:
-            res = subprocess.run(parsed.command, shell=True, check=False, capture_output=True, text=True)
+            if allow_shell_features:
+                res = subprocess.run(parsed.command, shell=True, check=False, capture_output=True, text=True)
+            else:
+                try:
+                    cmd_argv = shlex.split(parsed.command)
+                    res = subprocess.run(cmd_argv, shell=False, check=False, capture_output=True, text=True)
+                except ValueError:
+                    res = subprocess.run(parsed.command, shell=True, check=False, capture_output=True, text=True)
             returncode = getattr(res, "returncode", 0)
             stdout_str = res.stdout if isinstance(getattr(res, "stdout", None), str) else ""
             stderr_str = res.stderr if isinstance(getattr(res, "stderr", None), str) else ""
@@ -578,6 +625,70 @@ def remove_key_cmd(
     print_success(f"API key for '{provider}' removed successfully.")
 
 
+@config_app.command("allow-command")
+def allow_command_cmd(
+    prefix: str = typer.Argument(..., help="Command prefix to allow (e.g. git, npm, ls)"),
+):
+    """Add a command prefix to the opt-in execution allowlist."""
+    config = load_config()
+    p = prefix.strip()
+    if not p:
+        print_error("Command prefix cannot be empty.")
+        raise typer.Exit(1)
+
+    if p not in config.general.allowed_command_prefixes:
+        config.general.allowed_command_prefixes.append(p)
+        save_config(config)
+        print_success(f"Added '{p}' to allowed command prefixes.")
+    else:
+        print_info(f"Prefix '{p}' is already in the allowlist.")
+
+
+@config_app.command("disallow-command")
+def disallow_command_cmd(
+    prefix: str = typer.Argument(..., help="Command prefix to remove from allowlist"),
+):
+    """Remove a command prefix from the opt-in execution allowlist."""
+    config = load_config()
+    p = prefix.strip()
+    if p in config.general.allowed_command_prefixes:
+        config.general.allowed_command_prefixes.remove(p)
+        save_config(config)
+        print_success(f"Removed '{p}' from allowed command prefixes.")
+    else:
+        print_error(f"Prefix '{p}' is not in the allowlist.")
+        raise typer.Exit(1)
+
+
+@config_app.command("import-allowlist")
+def import_allowlist_cmd(
+    path: Path = typer.Argument(..., help="Path to text file containing command prefixes (one per line)"),
+):
+    """Import command prefixes from a file into allowed_command_prefixes."""
+    if not path.is_file():
+        print_error(f"File not found: {path}")
+        raise typer.Exit(1)
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print_error(f"Failed to read file '{path}': {exc}")
+        raise typer.Exit(1) from exc
+
+    config = load_config()
+    added_count = 0
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line not in config.general.allowed_command_prefixes:
+            config.general.allowed_command_prefixes.append(line)
+            added_count += 1
+
+    save_config(config)
+    print_success(f"Imported {added_count} new allowed command prefix(es) from '{path}'.")
+
+
 @config_app.command("show")
 def show_config():
     """Display current configuration, default provider, and key statuses."""
@@ -593,6 +704,12 @@ def show_config():
     table.add_row("Default Provider", config.general.default_provider)
     table.add_row("Fallback Enabled", str(config.general.fallback_enabled))
     table.add_row("Fallback Order", ", ".join(config.general.fallback_order))
+    allowlist_str = (
+        ", ".join(config.general.allowed_command_prefixes)
+        if config.general.allowed_command_prefixes
+        else "Disabled (empty)"
+    )
+    table.add_row("Allowed Command Prefixes", allowlist_str)
 
     console.print(table)
     console.print()

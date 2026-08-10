@@ -27,3 +27,18 @@ def test_cli_doctor():
     result = runner.invoke(app, ["config", "doctor"])
     assert result.exit_code == 0
     assert "Running Eva Environment Doctor" in result.output
+
+
+def test_cli_show_completion(monkeypatch):
+    monkeypatch.setattr("shellingham.detect_shell", lambda: ("bash", "/bin/bash"))
+    result = runner.invoke(app, ["--show-completion"])
+    assert result.exit_code == 0
+    assert "_EVA_COMPLETE=complete_bash" in result.stdout or "_eva_completion" in result.stdout
+
+
+def test_cli_completion_script_generation():
+    from typer._completion_shared import get_completion_script
+
+    for shell in ["bash", "zsh", "fish"]:
+        script = get_completion_script(prog_name="eva", complete_var="_EVA_COMPLETE", shell=shell)
+        assert len(script) > 0

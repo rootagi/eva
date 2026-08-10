@@ -3,8 +3,10 @@
 
 set -euo pipefail
 
-PACKAGE="eva-cli"  
+# Note: "eva-cli[fast]" can be used instead once eva-fastwalk is published for your platform
+PACKAGE="eva-cli"
 BIN="eva"
+
 # --------------------------
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }

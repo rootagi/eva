@@ -1,3 +1,11 @@
-"""Plugin subsystem package."""
+"""Plugin subsystem package for Eva CLI."""
 
-__all__: list[str] = []
+from eva.plugins.loader import discover_entry_points, load_plugins
+from eva.plugins.protocol import EvaPlugin, PluginError
+
+__all__ = [
+    "EvaPlugin",
+    "PluginError",
+    "discover_entry_points",
+    "load_plugins",
+]
