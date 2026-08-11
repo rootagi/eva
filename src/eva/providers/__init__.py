@@ -26,15 +26,43 @@ class QuotaExhaustedError(Exception):
     pass
 
 
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class TextDelta:
+    content: str
+
+
+@dataclass
+class ToolCall:
+    call_id: str
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ToolSpec:
+    name: str
+    description: str
+    parameters: dict[str, Any] = field(default_factory=dict)
+
+
 class Provider(Protocol):
     name: str
     max_rpm: int
     max_rpd: int
     max_context_tokens: int
+    supports_tools: bool = False
 
     def generate_stream(
         self, system_prompt: str, user_prompt: str, context: str, config: AppConfig
     ) -> Iterator[str]: ...
+
+    def generate_with_tools(
+        self, messages: list[dict], tools: list[ToolSpec], config: AppConfig
+    ) -> Iterator[TextDelta | ToolCall]: ...
 
 
 # Provider registry
@@ -48,6 +76,20 @@ def register_provider(provider: Provider):
 
 def get_provider(name: str) -> Provider | None:
     return _PROVIDERS.get(name)
+
+
+def is_tool_capable(provider_name: str) -> bool:
+    """Return True if the specified provider exists and supports tool calling."""
+    provider = get_provider(provider_name)
+    if provider is None:
+        return False
+    return getattr(provider, "supports_tools", False) is True
+
+
+def get_tool_capable_providers() -> list[str]:
+    """Return list of names of registered providers supporting tool calling."""
+    return [name for name, p in _PROVIDERS.items() if getattr(p, "supports_tools", False) is True]
+
 
 
 def get_context_budget(provider_name: str, config: AppConfig) -> int:
