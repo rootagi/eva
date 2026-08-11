@@ -28,16 +28,26 @@ Eva automatically redacts sensitive credentials **before** data is transmitted t
 
    Tokens exceeding the threshold (entropy > 3.5 bits/character) are automatically redacted as `[REDACTED_HIGH_ENTROPY]`.
 
-### Sensitive-File Denylist (Repo Context Packing)
+### Sensitive-File Denylist (Repo Context Packing & Agentic Investigation)
 
-Because `.gitignore` is not a security boundary, repository context packing (`eva ask --repo`) applies an explicit built-in denylist (`DENYLIST_PATTERNS`) **before** file contents are read, regardless of `.gitignore` state:
+Because `.gitignore` is not a security boundary, repository context packing (`eva ask --repo`) and agentic repo exploration (`eva investigate`) apply an explicit built-in denylist (`DENYLIST_PATTERNS`) **before** file contents are read, regardless of `.gitignore` state:
 
 - **Environment Files**: `.env`, `.env.*`, `*.env`
 - **Private Keys & Certificates**: `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`
 - **SSH Keys**: `id_rsa*`, `id_dsa*`, `id_ecdsa*`, `id_ed25519*`
 - **Known Credentials & Tokens**: `credentials.json`, `credentials.*`, `secrets.*`, `.netrc`, `.npmrc`, `.pypirc`, `*.tfvars`
 
-This denylist is applied as defense-in-depth alongside automatic text secret redaction (`redact_secrets`), which remains active on all packed text before provider transmission.
+This denylist is applied as defense-in-depth alongside automatic text secret redaction (`redact_secrets`), which remains active on all text before provider transmission.
+
+### Agentic Investigation Tool Security (`eva investigate`)
+
+For Codex-style agentic exploration (`eva investigate`), all tool invocations (`list_directory`, `read_file`, `search_code`) operate under strict defense-in-depth rules:
+
+1. **Strict Path Containment**: Every invocation enforces relative root containment via `Path.resolve()`. Any path traversal outside the repository root (`../` escape) is rejected with a structured error without raising unhandled exceptions.
+2. **Denylist & Gitignore Exclusion**: Denylisted files and `.gitignore`-matched paths are hidden from `list_directory` listings and `search_code` hits, and rejected with a security error on `read_file`.
+3. **Secret Redaction**: Content returned by `read_file` and matching lines from `search_code` pass through `redact_secrets()` before being added to model context.
+4. **Session Audit Logging**: Each completed or partial investigation session appends a hash-chained audit entry recording the query, provider, relative `files_read`, turn count, and `stopped_reason`.
+
 
 ---
 

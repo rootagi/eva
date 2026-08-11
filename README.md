@@ -167,6 +167,23 @@ eva ask "Explain the overall architecture" --repo . --dry-run
 eva ask "Find potential bugs across the codebase" --repo . --yes
 ```
 
+Agentic repo exploration (Codex-style multi-turn tool calling):
+
+```bash
+eva investigate "Find how CLI commands are wired and explain the app flow" . --yes
+```
+
+#### `eva investigate` vs `eva ask --repo`
+
+| Feature | `eva ask --repo` | `eva investigate` |
+| :--- | :--- | :--- |
+| **Approach** | Single-pass context dump | Multi-turn iterative tool calling |
+| **Context Selection** | Query-blind (dependency centrality, file size) | Query-driven (model decides what to inspect) |
+| **Tool Calling** | None | Iteratively calls `list_directory`, `read_file`, `search_code` |
+| **Token Usage** | Pre-packs files up to token budget | Reads only files needed for the query |
+| **Supported Providers** | All providers | Tool-capable providers (`groq`, `openrouter`, `opencode_zen`, `gemini`) |
+
+
 
 Explain a file or directory:
 

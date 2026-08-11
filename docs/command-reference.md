@@ -32,6 +32,26 @@ eva ask "Find architectural flaws" --repo . --yes
 eva ask "Why did this fail?" --no-cache
 ```
 
+### `eva investigate`
+Agentic, multi-turn, query-driven repository exploration (Codex/Claude Code-style). The LLM receives the question first and actively calls read-only tools (`list_directory`, `read_file`, `search_code`) to inspect relevant files before delivering a final answer.
+
+```bash
+# Agentic repo investigation
+eva investigate "Find how CLI commands are registered and explain the app flow" . --yes
+
+# Custom turn cap and provider
+eva investigate "Trace where budget limits are checked" . --max-turns 10 --provider groq --yes
+```
+
+#### Comparison: `eva investigate` vs `eva ask --repo`
+| Feature | `eva ask --repo` | `eva investigate` |
+| :--- | :--- | :--- |
+| **Execution Model** | Single-pass context dump | Multi-turn iterative tool calling |
+| **Context Selection** | Query-blind (dependency centrality, file size) | Query-driven (model decides what to read) |
+| **Tool Calling** | None | `list_directory`, `read_file`, `search_code` |
+| **Token Usage** | Pre-packs files up to token budget | Reads only files needed for the query |
+| **Supported Providers** | All providers | Tool-capable providers (`groq`, `openrouter`, `opencode_zen`, `gemini`) |
+
 ### `eva explain`
 Explain a file, concept, or repository with automatic stack detection and module dependency graph extraction.
 

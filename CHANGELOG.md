@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Codex-style Agentic Repo Exploration (`eva investigate`):**
+  - Added `eva investigate <query> [path]` command for multi-turn, query-driven codebase exploration using tool calling (`list_directory`, `read_file`, `search_code`).
+  - Added optional tool-calling capabilities to Provider protocol (`supports_tools`, `TextDelta`/`ToolCall` streaming events, `generate_with_tools`).
+  - Implemented streamed tool calling for OpenAI-compatible providers (`groq`, `openrouter`, `opencode_zen`) and `GeminiProvider`.
+  - Added upfront provider capability check (`is_tool_capable()`), producing a clear actionable error for non-tool-capable providers (`ollama`, `llamacpp`).
+  - Agent loop controller in `src/eva/agent/loop.py` featuring turn limits (`max_turns`), quota accounting per turn (`check_and_increment`), repeated tool call loop detection, and graceful partial answer degradation.
+  - Defense-in-depth security: path containment check on every tool call (`Path.resolve()`), sensitive-file denylist (`DENYLIST_PATTERNS`) and `.gitignore` gating, secret redaction (`redact_secrets`), and session-level hash-chained audit logging (`append_investigation_audit`).
 - **Repo-wide context packing (`src/eva/indexing/packer.py`, `src/eva/security/sensitive_files.py`, `src/eva/cli/app.py`):**
   - Added `--repo` flag to `eva ask` to pack entire repositories as plain-text LLM context up to per-provider token budgets.
   - Smart deterministic file ranking prioritizing Python module dependency centrality, shallow directory depth, and file size.
