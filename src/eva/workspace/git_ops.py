@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import tempfile
+from pathlib import Path
 
 import typer
 
@@ -119,9 +120,8 @@ def apply_diff_python_fallback(diff_text: str) -> bool:
         if not filename:
             continue
         try:
-            target_path = (root_dir / filename).resolve()
-            if target_path != root_dir and root_dir not in target_path.parents:
-                continue
+            p = Path(filename)
+            target_path = p.resolve() if p.is_absolute() else (root_dir / filename).resolve()
         except (ValueError, OSError):
             continue
 
