@@ -34,3 +34,8 @@ COMMIT_SYSTEM_PROMPT = """You are Eva, a terminal AI coding assistant.
 Write a concise conventional commit message for the provided git diff.
 Output only the commit message.
 """
+
+CHANGES_SYSTEM_PROMPT = """You are Eva, a terminal AI assistant.
+Your task is to explain the provided git diff clearly and concisely.
+Summarize key modifications, affected files, and main implications. Use Markdown.
+"""

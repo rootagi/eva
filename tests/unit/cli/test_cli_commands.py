@@ -19,6 +19,47 @@ def test_cli_ask_command(tmp_path):
         assert "Answer to query" in res.stdout
 
 
+def test_cli_ask_dir_command(tmp_path):
+    d = tmp_path / "src"
+    d.mkdir()
+    (d / "main.py").write_text("print(1)\n", encoding="utf-8")
+
+    with patch.object(app_module, "dispatch", return_value=iter(["Directory answer"])) as mock_dispatch:
+        res = runner.invoke(app, ["ask", "explain directory structure", "--dir", str(d)])
+        assert res.exit_code == 0
+        assert "Directory answer" in res.stdout
+        mock_dispatch.assert_called_once()
+        passed_context = mock_dispatch.call_args[0][2]
+        assert f"=== Directory tree: {d} ===" in passed_context
+        assert "main.py" in passed_context
+
+
+def test_cli_ask_dir_invalid_path(tmp_path):
+    f = tmp_path / "file.txt"
+    f.write_text("not a dir", encoding="utf-8")
+
+    res = runner.invoke(app, ["ask", "query", "--dir", str(f)])
+    assert res.exit_code == 1
+    assert "Not a directory" in res.output
+
+
+def test_cli_ask_dir_and_file_combined(tmp_path):
+    f = tmp_path / "data.txt"
+    f.write_text("file content", encoding="utf-8")
+    d = tmp_path / "src"
+    d.mkdir()
+    (d / "module.py").write_text("pass\n", encoding="utf-8")
+
+    with patch.object(app_module, "dispatch", return_value=iter(["Combined answer"])) as mock_dispatch:
+        res = runner.invoke(app, ["ask", "compare file and dir", "-f", str(f), "-d", str(d)])
+        assert res.exit_code == 0
+        assert "Combined answer" in res.stdout
+        mock_dispatch.assert_called_once()
+        passed_context = mock_dispatch.call_args[0][2]
+        assert f"=== File: {f} ===" in passed_context
+        assert f"=== Directory tree: {d} ===" in passed_context
+
+
 def test_cli_explain_command(tmp_path):
     f = tmp_path / "script.py"
     f.write_text("print('hello')", encoding="utf-8")
@@ -100,9 +141,15 @@ def test_cli_commit_command():
         patch.object(app_module, "run_git", return_value=mock_res),
         patch.object(app_module, "dispatch", return_value=iter(["feat: add change"])),
     ):
-        res = runner.invoke(app, ["commit"])
+        res = runner.invoke(app, ["commit-message"])
         assert res.exit_code == 0
         assert "feat: add change" in res.stdout
+
+
+def test_cli_commit_old_name_removed():
+    res = runner.invoke(app, ["commit"])
+    assert res.exit_code != 0
+    assert "No such command" in res.output or "Error:" in res.output
 
 
 def test_cli_use_command():
@@ -151,3 +198,11 @@ def test_cli_usage_alias():
     res_u = runner.invoke(app, ["usage"])
     assert res_u.exit_code == 0
     assert "Rate Limit Usage" in res_u.output
+
+
+def test_cli_cache_clear_command():
+    with patch.object(app_module, "clear_cache") as mock_clear:
+        res = runner.invoke(app, ["cache", "clear"])
+        assert res.exit_code == 0
+        assert "Cache cleared." in res.output
+        mock_clear.assert_called_once()

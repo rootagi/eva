@@ -47,3 +47,10 @@ def test_golden_edit_system_prompt():
 def test_golden_commit_system_prompt():
     golden_file = GOLDEN_DIR / "commit_system_prompt.txt"
     assert COMMIT_SYSTEM_PROMPT == golden_file.read_text(encoding="utf-8")
+
+
+def test_golden_changes_system_prompt():
+    from eva.prompts import CHANGES_SYSTEM_PROMPT
+
+    golden_file = GOLDEN_DIR / "changes_system_prompt.txt"
+    assert CHANGES_SYSTEM_PROMPT == golden_file.read_text(encoding="utf-8")

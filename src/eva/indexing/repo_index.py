@@ -133,7 +133,7 @@ def detect_stack(root_dir: str | Path) -> ProjectStack:
             if dep in {"pytest", "unittest"} and dep not in stack.test_frameworks:
                 stack.test_frameworks.append(dep)
 
-        if "pytest" not in stack.test_frameworks and (root / "conftest.py").exists() or (root / "tests").is_dir():
+        if "pytest" not in stack.test_frameworks and ((root / "conftest.py").exists() or (root / "tests").is_dir()):
             stack.test_frameworks.append("pytest")
 
     # Node.js stack detection

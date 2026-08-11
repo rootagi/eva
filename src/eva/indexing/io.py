@@ -23,13 +23,13 @@ def read_text_file_for_context(path: Path, max_bytes: int = MAX_CONTEXT_FILE_BYT
     size = path.stat().st_size
     read_limit = min(size, max_bytes)
     with open(path, "rb") as f:
-        data = f.read(read_limit + 1)
+        data = f.read(read_limit)
 
     if b"\x00" in data:
         raise ContextReadError(f"{path} appears to be binary; refusing to send it as text context.")
 
     if size > max_bytes:
         warnings.append(f"{path} is {size} bytes; only the first {max_bytes} bytes were read.")
-        data = data[:max_bytes]
 
     return data.decode("utf-8", errors="replace"), warnings
+

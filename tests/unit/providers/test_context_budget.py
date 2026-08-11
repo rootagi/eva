@@ -15,3 +15,13 @@ def test_get_context_budget_unknown_provider_fallback():
     budget = get_context_budget("nonexistent_provider", config)
     assert budget == DEFAULT_CONTEXT_BUDGET
     assert budget == 4000
+
+
+def test_get_context_budget_config_override():
+    from eva.config.config import AppConfig, ProviderConfig
+
+    config = AppConfig()
+    config.providers["opencode_zen"] = ProviderConfig(model="big-pickle", max_context_tokens=32000)
+    budget = get_context_budget("opencode_zen", config)
+    assert budget == 32000
+

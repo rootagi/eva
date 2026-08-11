@@ -27,6 +27,7 @@ def get_config_file() -> Path:
 
 class ProviderConfig(BaseModel):
     model: str
+    max_context_tokens: int | None = None
 
 
 class GeneralConfig(BaseModel):

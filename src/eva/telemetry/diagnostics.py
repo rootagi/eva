@@ -5,6 +5,7 @@ from pathlib import Path
 from eva.config import get_config_dir
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+_logging_configured: bool = False
 
 
 def get_log_file() -> Path:
@@ -12,7 +13,8 @@ def get_log_file() -> Path:
 
 
 def setup_logging(verbose: bool = False):
-    if getattr(setup_logging, "_configured", False):
+    global _logging_configured
+    if _logging_configured:
         root = logging.getLogger()
         root.setLevel(logging.DEBUG if verbose else logging.INFO)
         for handler in root.handlers:
@@ -40,4 +42,5 @@ def setup_logging(verbose: bool = False):
     root.addHandler(file_handler)
     root.addHandler(stream_handler)
 
-    setup_logging._configured = True
+    _logging_configured = True
+

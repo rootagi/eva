@@ -3,6 +3,12 @@ import pytest
 from eva.config import AppConfig, ProviderConfig
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cache(monkeypatch, tmp_path):
+    """Redirect the disk cache to a temp directory so tests never share cached responses."""
+    monkeypatch.setattr("eva.cache.cache.get_cache_dir", lambda: tmp_path / "test_cache")
+
+
 @pytest.fixture
 def mock_config(monkeypatch, tmp_path):
     monkeypatch.setenv("EVA_OPENROUTER_API_KEY", "test-or-key")

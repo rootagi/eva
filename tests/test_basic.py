@@ -3,12 +3,12 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from typer.testing import CliRunner
 
-import eva.budget as budget_module
-from eva.budget import check_and_increment, load_budget
+import eva.workflows.budget as budget_module
 from eva.cli import app
 from eva.indexing.tokenizer import trim_context
 from eva.indexing.tree import generate_tree
-from eva.work_safety import CommandExtractionError, parse_safe_command
+from eva.security.work_safety import CommandExtractionError, parse_safe_command
+from eva.workflows.budget import check_and_increment, load_budget
 from eva.workspace.gitignore import get_gitignore_spec, is_ignored
 
 runner = CliRunner()
@@ -96,7 +96,7 @@ def test_find_with_path_argument():
 
 
 def test_work_parser_blocks_absolute_path_system_rm():
-    from eva.work_safety import UnsafeCommandError
+    from eva.security.work_safety import UnsafeCommandError
 
     with pytest.raises(UnsafeCommandError):
         parse_safe_command("/usr/bin/rm -rf /")

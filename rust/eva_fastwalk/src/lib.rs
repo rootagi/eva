@@ -41,9 +41,11 @@ fn fast_find_files(root: &str, pattern: &str) -> PyResult<Vec<String>> {
     for result in walker {
         match result {
             Ok(entry) => {
-                if let Some(file_name) = entry.file_name().to_str() {
-                    if ALWAYS_IGNORED_DIRS.contains(&file_name) {
-                        continue;
+                if entry.file_type().map_or(false, |ft| ft.is_dir()) {
+                    if let Some(file_name) = entry.file_name().to_str() {
+                        if ALWAYS_IGNORED_DIRS.contains(&file_name) {
+                            continue;
+                        }
                     }
                 }
                 if entry.file_type().map_or(false, |ft| ft.is_file()) {

@@ -93,13 +93,7 @@ def get_tool_capable_providers() -> list[str]:
 
 
 def get_context_budget(provider_name: str, config: AppConfig) -> int:
-    """Return effective max context tokens for provider, falling back to 4000."""
-    provider = get_provider(provider_name)
-    if provider is not None:
-        budget = getattr(provider, "max_context_tokens", None)
-        if isinstance(budget, int) and budget > 0:
-            return budget
-
+    """Return effective max context tokens for provider: config > provider class default > 4000."""
     if config and hasattr(config, "providers"):
         provider_cfg = config.providers.get(provider_name)
         if provider_cfg:
@@ -107,7 +101,19 @@ def get_context_budget(provider_name: str, config: AppConfig) -> int:
             if isinstance(cfg_budget, int) and cfg_budget > 0:
                 return cfg_budget
 
+    provider = get_provider(provider_name)
+    if provider is not None:
+        budget = getattr(provider, "max_context_tokens", None)
+        if isinstance(budget, int) and budget > 0:
+            return budget
+
     return DEFAULT_CONTEXT_BUDGET
+
+
+def get_effective_context_tokens(provider_name: str, config: AppConfig) -> int:
+    """Return effective max context tokens for provider at generation time."""
+    return get_context_budget(provider_name, config)
+
 
 
 def _resolve_provider_name(config: AppConfig, pinned_provider: str | None = None) -> str:

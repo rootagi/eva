@@ -113,12 +113,23 @@ def apply_diff_python_fallback(diff_text: str) -> bool:
 
     modified_any = False
 
+    root_dir = Path.cwd().resolve()
+
     for filename, hunks in files_hunks.items():
-        if not filename or not os.path.exists(filename):
+        if not filename:
+            continue
+        try:
+            target_path = (root_dir / filename).resolve()
+            if target_path != root_dir and root_dir not in target_path.parents:
+                continue
+        except (ValueError, OSError):
+            continue
+
+        if not target_path.is_file():
             continue
 
         try:
-            with open(filename, "r", encoding="utf-8") as f:
+            with open(target_path, "r", encoding="utf-8") as f:
                 file_content = f.read()
         except (OSError, UnicodeDecodeError):
             continue
@@ -154,7 +165,7 @@ def apply_diff_python_fallback(diff_text: str) -> bool:
             updated_text += "\n"
 
         if updated_text != file_content:
-            with open(filename, "w", encoding="utf-8") as f:
+            with open(target_path, "w", encoding="utf-8") as f:
                 f.write(updated_text)
             modified_any = True
 

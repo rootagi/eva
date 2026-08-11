@@ -140,7 +140,7 @@ def run_investigation(
         {"role": "user", "content": query},
     ]
 
-    last_tool_call_signature: tuple[str, str] | None = None
+    last_turn_signatures: list[tuple[str, str]] = []
     accumulated_answer: str = ""
 
     for turn in range(1, max_turns + 1):
@@ -192,6 +192,20 @@ def run_investigation(
                 stopped_reason=StoppedReason.COMPLETED,
             )
 
+        current_turn_signatures = [
+            (tc.name, json.dumps(tc.arguments, sort_keys=True) if isinstance(tc.arguments, dict) else str(tc.arguments))
+            for tc in tool_calls
+        ]
+        if current_turn_signatures and current_turn_signatures == last_turn_signatures:
+            note = "\n\n[Note: Investigation interrupted due to repeated identical tool execution.]"
+            return InvestigationResult(
+                final_answer=accumulated_answer + note if accumulated_answer else note,
+                files_read=sorted(files_read_set),
+                turns_used=turn,
+                stopped_reason=StoppedReason.REPEATED_CALL_DETECTED,
+            )
+        last_turn_signatures = current_turn_signatures
+
         formatted_tool_calls = [
             {
                 "id": tc.call_id,
@@ -210,17 +224,6 @@ def run_investigation(
         })
 
         for tc in tool_calls:
-            sig = (tc.name, json.dumps(tc.arguments, sort_keys=True))
-            if sig == last_tool_call_signature:
-                note = "\n\n[Note: Investigation interrupted due to repeated identical tool execution.]"
-                return InvestigationResult(
-                    final_answer=accumulated_answer + note if accumulated_answer else note,
-                    files_read=sorted(files_read_set),
-                    turns_used=turn,
-                    stopped_reason=StoppedReason.REPEATED_CALL_DETECTED,
-                )
-            last_tool_call_signature = sig
-
             if on_tool_start:
                 on_tool_start(tc.name, tc.arguments)
 

@@ -38,7 +38,7 @@ class OllamaProvider(OpenAICompatibleProvider):
         from openai import OpenAI
 
         from eva.indexing.tokenizer import trim_context
-        from eva.providers import AuthError, RateLimitError, ServerError
+        from eva.providers import AuthError, RateLimitError, ServerError, get_effective_context_tokens
 
         base_url = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/") + "/v1"
         client = OpenAI(base_url=base_url, api_key=api_key)
@@ -46,7 +46,9 @@ class OllamaProvider(OpenAICompatibleProvider):
         provider_config = config.providers.get(self.name)
         model = self._resolve_model(provider_config.model if provider_config else self.default_model)
 
-        trimmed_context = trim_context(context, max_tokens=self.max_context_tokens) if context else ""
+        max_tokens = get_effective_context_tokens(self.name, config)
+        trimmed_context = trim_context(context, max_tokens=max_tokens) if context else ""
+
 
         messages = [{"role": "system", "content": system_prompt}]
         if trimmed_context:

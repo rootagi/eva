@@ -67,10 +67,10 @@ def redact_secrets(text: str, entropy_threshold: float = 3.5) -> str:
     # Step 2: High-entropy string redaction
     def replace_high_entropy(match: re.Match) -> str:
         token = match.group(0)
-        # Skip tokens that look like already-redacted markers
-        if token.startswith(("[REDACTED", "REDACTED")):
+        # Skip tokens that look like already-redacted markers or standard web URLs
+        if token.startswith("[REDACTED") or token.startswith(("http://", "https://")):
             return token
-        # Skip standard UUIDs (hex hyphenated) or common hex strings with low character set variance
+        # Skip standard UUIDs or hex strings with lower entropy
         if shannon_entropy(token) > entropy_threshold:
             return "[REDACTED_HIGH_ENTROPY]"
         return token

@@ -7,7 +7,16 @@ from openai import OpenAI
 
 from eva.config import AppConfig, get_api_key
 from eva.indexing.tokenizer import trim_context
-from eva.providers import AuthError, Provider, RateLimitError, ServerError, TextDelta, ToolCall, ToolSpec
+from eva.providers import (
+    AuthError,
+    Provider,
+    RateLimitError,
+    ServerError,
+    TextDelta,
+    ToolCall,
+    ToolSpec,
+    get_effective_context_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +42,8 @@ class OpenAICompatibleProvider(Provider):
         provider_config = config.providers.get(self.name)
         model = self._resolve_model(provider_config.model if provider_config else self.default_model)
 
-        trimmed_context = trim_context(context, max_tokens=self.max_context_tokens) if context else ""
+        max_tokens = get_effective_context_tokens(self.name, config)
+        trimmed_context = trim_context(context, max_tokens=max_tokens) if context else ""
 
         messages = [{"role": "system", "content": system_prompt}]
         if trimmed_context:

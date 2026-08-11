@@ -13,6 +13,7 @@ from eva.providers import (
     TextDelta,
     ToolCall,
     ToolSpec,
+    get_effective_context_tokens,
     register_provider,
 )
 
@@ -34,7 +35,8 @@ class GeminiProvider(Provider):
         provider_config = config.providers.get(self.name)
         model = provider_config.model if provider_config else "gemini-3-flash"
 
-        trimmed_context = trim_context(context, max_tokens=1000000) if context else ""
+        max_tokens = get_effective_context_tokens(self.name, config)
+        trimmed_context = trim_context(context, max_tokens=max_tokens) if context else ""
 
         prompt = ""
         if trimmed_context:

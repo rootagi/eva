@@ -75,7 +75,7 @@ eva --install-completion
 
 1. **One-Shot Queries**: `eva ask "How do I untar a gz archive?"`
 2. **Context-Aware Analysis**: Pass `--file` or `--dir` context safely with `.gitignore` filtering.
-3. **Terminal Pipeline Analysis**: Pipe command output directly into `eva analyse`.
+3. **Terminal Pipeline Analysis**: Pipe command output directly into `eva analyze`.
 4. **Interactive Session Chat**: Persistent sessions with `eva chat --session <id>`.
 5. **Safe Command Generation**: Natural language command generation via `eva work` with `--dry-run`, `--dry-run-explain`, and safety checks.
 6. **Git & Patch Workflows**: Reviewable diff generation with `eva edit` and automated commit messages via `eva commit-message`.
