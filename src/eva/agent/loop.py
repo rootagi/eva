@@ -192,12 +192,21 @@ def run_investigation(
                 stopped_reason=StoppedReason.COMPLETED,
             )
 
+        formatted_tool_calls = [
+            {
+                "id": tc.call_id,
+                "type": "function",
+                "function": {
+                    "name": tc.name,
+                    "arguments": json.dumps(tc.arguments) if isinstance(tc.arguments, dict) else str(tc.arguments),
+                },
+            }
+            for tc in tool_calls
+        ]
         messages.append({
             "role": "assistant",
-            "content": turn_text,
-            "tool_calls": [
-                {"id": tc.call_id, "name": tc.name, "arguments": tc.arguments} for tc in tool_calls
-            ],
+            "content": turn_text if turn_text else None,
+            "tool_calls": formatted_tool_calls,
         })
 
         for tc in tool_calls:
