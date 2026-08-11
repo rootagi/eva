@@ -123,4 +123,24 @@ def verify_audit_chain(log_file: Path | None = None) -> tuple[bool, int, str]:
             expected_prev_hash = stored_hash
             count += 1
 
-    return True, count, "Audit log chain verified successfully"
+    return True, count, f"Audit log chain verified successfully ({count} entries)"
+
+
+def append_investigation_audit(
+    provider: str,
+    query: str,
+    files_read: list[str],
+    turns_used: int,
+    stopped_reason: str,
+    log_file: Path | None = None,
+):
+    """Record an audit log entry for an agentic investigation session."""
+    entry = {
+        "command": "investigate",
+        "provider": provider,
+        "query": query,
+        "files_read": files_read,
+        "turns_used": turns_used,
+        "stopped_reason": stopped_reason,
+    }
+    append_command_audit(entry, log_file=log_file)

@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from eva.agent import StoppedReason, run_investigation
 from eva.cache import clear_cache
 from eva.config import (
     KeyringUnavailableError,
@@ -35,9 +36,10 @@ from eva.prompts import (
     EXPLAIN_SYSTEM_PROMPT,
     WORK_SYSTEM_PROMPT,
 )
-from eva.providers import _resolve_provider_name, dispatch, get_context_budget, get_provider
+from eva.providers import _resolve_provider_name, dispatch, get_context_budget, get_provider, is_tool_capable
 from eva.replay import display_replay_session, list_replay_sessions, record_replay_event
 from eva.security import run_sandboxed
+from eva.security.audit import append_investigation_audit
 from eva.security.work_safety import (
     CommandExtractionError,
     UnsafeCommandError,
@@ -293,6 +295,89 @@ def explain(
         print_error(result.strip())
         raise typer.Exit(1)
     print_markdown(result)
+
+
+@app.command()
+def investigate(
+    query: str = typer.Argument(..., help="Question or objective for repository investigation"),
+    path: str = typer.Argument(".", help="Target repository directory path (defaults to '.')"),
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help="Pin to a specific provider (e.g. groq, openrouter, opencode_zen, gemini)",
+    ),
+    max_turns: int = typer.Option(
+        8,
+        "--max-turns",
+        help="Maximum turn limit for the investigation loop (defaults to 8)",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip upfront confirmation prompt",
+    ),
+):
+    """Agentic, multi-turn, query-driven repo exploration."""
+    config = load_config()
+    resolved_provider = _resolve_provider_name(config, provider)
+
+    if not is_tool_capable(resolved_provider):
+        print_error(
+            f"The current provider ({resolved_provider}) does not support agentic exploration. "
+            "Use --provider groq/openrouter/opencode_zen/gemini, or set one of those as your default with `eva use <provider>`."
+        )
+        raise typer.Exit(1)
+
+    target_root = Path(path).resolve()
+    if not target_root.exists() or not target_root.is_dir():
+        print_error(f"Target path '{path}' does not exist or is not a directory.")
+        raise typer.Exit(1)
+
+    if not yes:
+        err_console.print(
+            f"[yellow]Notice:[/yellow] Agentic investigation will read repository files as needed "
+            f"and send their contents to provider '{resolved_provider}'."
+        )
+        confirm = typer.confirm("Do you want to proceed?", default=True)
+        if not confirm:
+            print_info("Investigation cancelled.")
+            raise typer.Exit(0)
+
+    def on_tool_start(tool_name: str, args: dict):
+        if tool_name == "read_file":
+            p = args.get("path", "")
+            err_console.print(f"[dim]Reading {p}...[/dim]")
+        elif tool_name == "list_directory":
+            p = args.get("path", ".")
+            err_console.print(f"[dim]Listing {p}...[/dim]")
+        elif tool_name == "search_code":
+            pat = args.get("pattern", "")
+            err_console.print(f"[dim]Searching code for '{pat}'...[/dim]")
+
+    result = run_investigation(
+        query=query,
+        root=target_root,
+        config=config,
+        provider_name=resolved_provider,
+        max_turns=max_turns,
+        on_tool_start=on_tool_start,
+    )
+
+    append_investigation_audit(
+        provider=resolved_provider,
+        query=query,
+        files_read=result.files_read,
+        turns_used=result.turns_used,
+        stopped_reason=result.stopped_reason.value,
+    )
+
+    if result.final_answer:
+        print_markdown(result.final_answer)
+
+    if result.stopped_reason != StoppedReason.COMPLETED:
+        print_info(f"Session ended: {result.stopped_reason.value}")
 
 
 @app.command()
