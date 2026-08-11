@@ -38,11 +38,26 @@ def test_pack_repository_excludes_binary_files(tmp_path):
 def test_pack_repository_excludes_denylisted_files(tmp_path):
     (tmp_path / "app.py").write_text("print('hello')\n")
     (tmp_path / "credentials.json").write_text('{"api_key": "should-not-be-packed"}\n')
+    (tmp_path / ".env").write_text("SECRET=12345\n")
+    (tmp_path / "server.pem").write_text("-----BEGIN PRIVATE KEY-----\n")
 
     result = pack_repository(tmp_path, max_tokens=10_000)
 
     assert ("credentials.json", "denylisted") in result.excluded_files
-    assert "should-not-be-packed" not in result.packed_context
+    assert (".env", "denylisted") in result.excluded_files
+    assert ("server.pem", "denylisted") in result.excluded_files
+    assert "SECRET=12345" not in result.packed_context
+    assert "BEGIN PRIVATE KEY" not in result.packed_context
+
+
+def test_pack_repository_supports_extra_ignore_patterns(tmp_path):
+    (tmp_path / "app.py").write_text("print('hello')\n")
+    (tmp_path / "custom.log").write_text("log data\n")
+
+    result = pack_repository(tmp_path, max_tokens=10_000, extra_ignore_patterns=["*.log"])
+
+    assert ("custom.log", "extra_ignored") in result.excluded_files
+    assert result.included_files == ["app.py"]
 
 
 def test_pack_repository_keeps_tree_when_budget_excludes_files(tmp_path):
@@ -55,3 +70,4 @@ def test_pack_repository_keeps_tree_when_budget_excludes_files(tmp_path):
     assert "# Repository tree" in result.packed_context
     assert "src" in result.packed_context
     assert any(reason == "budget_exceeded" for _, reason in result.excluded_files)
+

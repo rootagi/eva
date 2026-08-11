@@ -7,7 +7,6 @@ then lexicographic path order.
 
 from __future__ import annotations
 
-import fnmatch
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,30 +17,10 @@ from eva.indexing.io import ContextReadError, read_text_file_for_context
 from eva.indexing.repo_index import build_dep_graph, detect_stack
 from eva.indexing.tokenizer import count_tokens, trim_context
 from eva.indexing.tree import generate_tree
+from eva.security.sensitive_files import DENYLIST_PATTERNS, is_sensitive_file
 from eva.workspace.gitignore import get_gitignore_spec, is_ignored
 
-SENSITIVE_FILE_PATTERNS = (
-    ".env",
-    ".env.*",
-    "*.env",
-    "*.key",
-    "*.pem",
-    "*.p12",
-    "*.pfx",
-    "*.jks",
-    "*.keystore",
-    "*.tfvars",
-    ".netrc",
-    ".npmrc",
-    ".pypirc",
-    "credentials.json",
-    "credentials.*",
-    "secrets.*",
-    "id_rsa*",
-    "id_dsa*",
-    "id_ecdsa*",
-    "id_ed25519*",
-)
+SENSITIVE_FILE_PATTERNS = DENYLIST_PATTERNS
 
 
 @dataclass
@@ -66,8 +45,8 @@ class _PackCandidate:
 
 
 def _matches_sensitive_denylist(relative_path: str) -> bool:
-    filename = Path(relative_path).name.lower()
-    return any(fnmatch.fnmatchcase(filename, pattern) for pattern in SENSITIVE_FILE_PATTERNS)
+    return is_sensitive_file(relative_path)
+
 
 
 def _module_name(relative_path: str) -> str | None:

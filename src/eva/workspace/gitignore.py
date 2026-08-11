@@ -9,7 +9,6 @@ ALWAYS_IGNORED_DIRS = {
     ".venv",
     "venv",
     "env",
-    ".env",
     "dist",
     "build",
     ".next",
@@ -18,6 +17,7 @@ ALWAYS_IGNORED_DIRS = {
     ".mypy_cache",
     ".ruff_cache",
 }
+
 
 
 def get_gitignore_spec(root_dir: Path) -> pathspec.PathSpec | None:

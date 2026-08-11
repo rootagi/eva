@@ -4,6 +4,7 @@ from eva.security.audit import (
 )
 from eva.security.redaction import redact_secrets
 from eva.security.sandbox import get_sandboxed_env, run_sandboxed
+from eva.security.sensitive_files import DENYLIST_PATTERNS, is_sensitive_file
 from eva.security.work_safety import (
     BLAST_RADIUS_PATTERNS,
     AllowlistViolationError,
@@ -20,6 +21,7 @@ from eva.security.work_safety import (
 
 __all__ = [
     "BLAST_RADIUS_PATTERNS",
+    "DENYLIST_PATTERNS",
     "AllowlistViolationError",
     "CommandExtractionError",
     "ParsedCommand",
@@ -31,8 +33,10 @@ __all__ = [
     "extract_single_command",
     "get_command_audit_log",
     "get_sandboxed_env",
+    "is_sensitive_file",
     "parse_safe_command",
     "redact_secrets",
     "run_sandboxed",
     "verify_audit_chain",
 ]
+
