@@ -12,6 +12,8 @@ class GeminiProvider(Provider):
     name = "gemini"
     max_rpm = 15
     max_rpd = 1500
+    max_context_tokens = 1000000
+
 
     def generate_stream(self, system_prompt: str, user_prompt: str, context: str, config: AppConfig) -> Iterator[str]:
         api_key = get_api_key(self.name)

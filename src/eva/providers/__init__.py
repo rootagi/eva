@@ -30,6 +30,7 @@ class Provider(Protocol):
     name: str
     max_rpm: int
     max_rpd: int
+    max_context_tokens: int
 
     def generate_stream(
         self, system_prompt: str, user_prompt: str, context: str, config: AppConfig
@@ -38,6 +39,7 @@ class Provider(Protocol):
 
 # Provider registry
 _PROVIDERS: dict[str, Provider] = {}
+DEFAULT_CONTEXT_BUDGET = 4000
 
 
 def register_provider(provider: Provider):
@@ -48,7 +50,71 @@ def get_provider(name: str) -> Provider | None:
     return _PROVIDERS.get(name)
 
 
+def get_context_budget(provider_name: str, config: AppConfig) -> int:
+    """Return effective max context tokens for provider, falling back to 4000."""
+    provider = get_provider(provider_name)
+    if provider is not None:
+        budget = getattr(provider, "max_context_tokens", None)
+        if isinstance(budget, int) and budget > 0:
+            return budget
+
+    if config and hasattr(config, "providers"):
+        provider_cfg = config.providers.get(provider_name)
+        if provider_cfg:
+            cfg_budget = getattr(provider_cfg, "max_context_tokens", None)
+            if isinstance(cfg_budget, int) and cfg_budget > 0:
+                return cfg_budget
+
+    return DEFAULT_CONTEXT_BUDGET
+
+
+def _resolve_provider_name(config: AppConfig, pinned_provider: str | None = None) -> str:
+    """Return the provider name that dispatch will actually use."""
+    if pinned_provider:
+        return pinned_provider
+    return config.general.default_provider
+
+
+
 def dispatch(
+    system_prompt: str,
+    user_prompt: str,
+    context: str,
+    config: AppConfig,
+    pinned_provider: str | None = None,
+    use_cache: bool = True,
+) -> Iterator[str]:
+    from eva.cache import generate_cache_key, get_cached_response, set_cached_response
+    from eva.ui.formatter import is_ai_error
+
+    # Determine the provider name for the cache key
+    provider_name = _resolve_provider_name(config, pinned_provider)
+
+    # Check cache before calling the provider
+    cache_key = generate_cache_key(provider_name, system_prompt, user_prompt, context) if use_cache else None
+    if use_cache and cache_key:
+        cached = get_cached_response(cache_key)
+        if cached is not None:
+            logger.debug("Cache hit for provider %s", provider_name)
+            yield cached
+            return
+
+    # Delegate to the uncached dispatch and collect the full response
+    chunks: list[str] = []
+    for chunk in _dispatch_uncached(system_prompt, user_prompt, context, config, pinned_provider):
+        chunks.append(chunk)
+        yield chunk
+
+    # Cache the result if caching is enabled and the response is not an error
+    if use_cache and cache_key:
+        full_response = "".join(chunks)
+        if not is_ai_error(full_response):
+            set_cached_response(cache_key, full_response)
+        else:
+            logger.debug("Skipping cache for error response")
+
+
+def _dispatch_uncached(
     system_prompt: str, user_prompt: str, context: str, config: AppConfig, pinned_provider: str | None = None
 ) -> Iterator[str]:
     if pinned_provider:
