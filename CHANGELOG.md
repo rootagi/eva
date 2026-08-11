@@ -42,6 +42,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation cleanup (`README.md`, `docs/`):**
   - Removed outdated `eva analyse` references across documentation files in favor of `eva analyze`.
 
+### Fixed
+- **`eva-fastwalk` Crate Update (v0.1.1, `rust/eva_fastwalk/`):**
+  - Restructured `ALWAYS_IGNORED_DIRS` filtering in `rust/eva_fastwalk/src/lib.rs` so ignore checks apply strictly to directory entries rather than file entries.
+  - Bumped version in `rust/eva_fastwalk/Cargo.toml` to `0.1.1`.
+- **Shell Runner Sandboxing (`src/eva/shell/runner.py`):**
+  - Updated `execute_shell_command()` to route through `run_sandboxed` with strict environment variable filtering and timeout handling.
+- **Agent Multi-Tool Call Loop Tracking (`src/eva/agent/loop.py`):**
+  - Refactored `run_investigation()` signature tracking from single-signature overwrites to turn-level signature list comparison (`last_turn_signatures`), properly identifying multi-tool call loops across turns.
+- **UTF-8 Byte Slicing (`src/eva/indexing/io.py`):**
+  - Corrected read limit byte slicing order before UTF-8 decoding to prevent character truncation errors at context limits.
+- **Path Resolution & Fallback Diff Security (`src/eva/workspace/git_ops.py`):**
+  - Added target path resolution and containment checks in `apply_diff_python_fallback()`.
+- **Entropy Secret Redaction (`src/eva/security/redaction.py`):**
+  - Added URL pattern exclusions (`http://`, `https://`) in high-entropy token detection to avoid false-positive redactions of standard API URLs.
+- **Diagnostics Logging Guard (`src/eva/telemetry/diagnostics.py`):**
+  - Replaced function-attribute singleton state with a module-level `_logging_configured` flag for reliable state tracking.
+- **Stack Framework Operator Precedence (`src/eva/indexing/repo_index.py`):**
+  - Added explicit parentheses around `conftest.py` and `tests/` directory detection to fix operator evaluation order.
+
 ### Removed
 - **Legacy shim cleanup (`src/eva/`):**
   - Removed unused flat compatibility shim files (`config.py`, `cache.py`, `budget.py`, `work_safety.py`, `git_ops.py`, `chat_session.py`, `diagnostics.py`). Code and tests now import directly from standard package locations (`eva.config`, `eva.cache`, `eva.workflows.budget`, `eva.security.work_safety`, `eva.workspace.git_ops`, `eva.workflows.chat_session`, `eva.telemetry.diagnostics`).
