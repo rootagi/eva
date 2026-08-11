@@ -21,6 +21,14 @@ def test_unsupported_provider_reports_false():
     assert "unsupported_fake" not in get_tool_capable_providers()
 
 
+def test_local_providers_report_not_tool_capable():
+    assert is_tool_capable("ollama") is False
+    assert is_tool_capable("llamacpp") is False
+    assert "ollama" not in get_tool_capable_providers()
+    assert "llamacpp" not in get_tool_capable_providers()
+
+
+
 def test_tool_event_dataclasses():
     delta = TextDelta(content="hello")
     assert delta.content == "hello"

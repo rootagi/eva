@@ -29,6 +29,7 @@ class LlamaCppProvider(OpenAICompatibleProvider):
     max_rpd = 9999
     default_model = "default"
     max_context_tokens = 8000
+    supports_tools: bool = False
 
     def generate_stream(self, system_prompt: str, user_prompt: str, context: str, config: AppConfig) -> Iterator[str]:
         api_key = get_api_key(self.name) or "llamacpp"
