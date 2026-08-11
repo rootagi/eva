@@ -1,10 +1,12 @@
+from importlib import import_module
 from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from eva.agent.loop import InvestigationResult, StoppedReason
-from eva.cli.app import app
 
+app_module = import_module("eva.cli.app")
+app = app_module.app
 runner = CliRunner()
 
 
@@ -17,9 +19,9 @@ def test_investigate_command_success_with_yes(tmp_path):
     )
 
     with (
-        patch("eva.cli.app.is_tool_capable", return_value=True),
-        patch("eva.cli.app.run_investigation", return_value=mock_res) as mock_run,
-        patch("eva.cli.app.append_investigation_audit") as mock_audit,
+        patch.object(app_module, "is_tool_capable", return_value=True),
+        patch.object(app_module, "run_investigation", return_value=mock_res) as mock_run,
+        patch.object(app_module, "append_investigation_audit") as mock_audit,
     ):
         result = runner.invoke(app, ["investigate", "where is entry point?", str(tmp_path), "--yes", "--provider", "groq"])
 
@@ -37,9 +39,9 @@ def test_investigate_command_success_with_yes(tmp_path):
 
 def test_investigate_command_declined_confirmation(tmp_path):
     with (
-        patch("eva.cli.app.is_tool_capable", return_value=True),
-        patch("eva.cli.app.run_investigation") as mock_run,
-        patch("eva.cli.app.append_investigation_audit") as mock_audit,
+        patch.object(app_module, "is_tool_capable", return_value=True),
+        patch.object(app_module, "run_investigation") as mock_run,
+        patch.object(app_module, "append_investigation_audit") as mock_audit,
     ):
         # Simulate user answering "n" to confirmation prompt
         result = runner.invoke(app, ["investigate", "test query", str(tmp_path)], input="n\n")
@@ -52,9 +54,9 @@ def test_investigate_command_declined_confirmation(tmp_path):
 
 def test_investigate_command_unsupported_provider_exits_early(tmp_path):
     with (
-        patch("eva.cli.app.is_tool_capable", return_value=False),
-        patch("eva.cli.app.run_investigation") as mock_run,
-        patch("eva.cli.app.append_investigation_audit") as mock_audit,
+        patch.object(app_module, "is_tool_capable", return_value=False),
+        patch.object(app_module, "run_investigation") as mock_run,
+        patch.object(app_module, "append_investigation_audit") as mock_audit,
     ):
         result = runner.invoke(app, ["investigate", "test query", str(tmp_path), "--provider", "ollama"])
 
@@ -62,3 +64,4 @@ def test_investigate_command_unsupported_provider_exits_early(tmp_path):
     mock_run.assert_not_called()
     mock_audit.assert_not_called()
     assert "does not support agentic exploration" in result.output
+

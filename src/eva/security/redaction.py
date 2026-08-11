@@ -68,7 +68,7 @@ def redact_secrets(text: str, entropy_threshold: float = 3.5) -> str:
     def replace_high_entropy(match: re.Match) -> str:
         token = match.group(0)
         # Skip tokens that look like already-redacted markers or standard web URLs
-        if token.startswith("[REDACTED") or token.startswith(("http://", "https://")):
+        if token.startswith(("[REDACTED", "http://", "https://")):
             return token
         # Skip standard UUIDs or hex strings with lower entropy
         if shannon_entropy(token) > entropy_threshold:
