@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from eva.cache import clear_cache
 from eva.config import (
     KeyringUnavailableError,
     clear_api_key,
@@ -21,18 +22,20 @@ from eva.config import (
 )
 from eva.indexing.finder import find_files
 from eva.indexing.io import ContextReadError, read_text_file_for_context
+from eva.indexing.packer import pack_repository
 from eva.indexing.repo_index import build_dep_graph, detect_stack
 from eva.indexing.tokenizer import trim_context
 from eva.indexing.tree import generate_tree
 from eva.prompts import (
     ANALYZE_SYSTEM_PROMPT,
     ASK_SYSTEM_PROMPT,
+    CHANGES_SYSTEM_PROMPT,
     COMMIT_SYSTEM_PROMPT,
     EDIT_SYSTEM_PROMPT,
     EXPLAIN_SYSTEM_PROMPT,
     WORK_SYSTEM_PROMPT,
 )
-from eva.providers import dispatch, get_provider
+from eva.providers import _resolve_provider_name, dispatch, get_context_budget, get_provider
 from eva.replay import display_replay_session, list_replay_sessions, record_replay_event
 from eva.security import run_sandboxed
 from eva.security.work_safety import (
@@ -69,11 +72,13 @@ config_app = typer.Typer(help="Manage Eva configuration and API keys.")
 budget_app = typer.Typer(help="Inspect rate limits and token budget usage.")
 workflow_app = typer.Typer(help="Run and manage declarative multi-step workflows.")
 workspace_app = typer.Typer(help="Manage named session workspaces, notes, and bookmarks.")
+cache_app = typer.Typer(help="Manage response cache.")
 
 app.add_typer(config_app, name="config")
 app.add_typer(budget_app, name="budget")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(workspace_app, name="workspace")
+app.add_typer(cache_app, name="cache")
 
 from eva.plugins import load_plugins
 
@@ -137,22 +142,109 @@ def _read_context_file(path: Path, header: str = "") -> str:
 def ask(
     query: list[str] = typer.Argument(..., help="The prompt or question to ask Eva"),
     files: list[Path] = typer.Option(None, "--file", "-f", help="Include file content as context"),
+    dirs: list[Path] = typer.Option(None, "--dir", "-d", help="Include a directory tree as context"),
+    repo: Path | None = typer.Option(
+        None,
+        "--repo",
+        help="Pack the entire repository (respecting .gitignore and sensitive-file exclusions) as context, up to the active provider's context budget",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be packed and sent, without sending it"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip the confirmation prompt before sending repo-wide context"
+    ),
     provider: str | None = typer.Option(None, "--provider", "-p", help="Pin to a specific provider"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the response cache"),
 ):
-    """Ask a question, optionally including local file context."""
+    """Ask a question, optionally including local file context or repo-wide packed context."""
     config = load_config()
     context = ""
+    pack_res = None
+    provider_name = _resolve_provider_name(config, provider)
+
+    if repo:
+        if not repo.is_dir():
+            print_error(f"Not a directory: {repo}")
+            raise typer.Exit(1)
+        max_tokens = get_context_budget(provider_name, config)
+        pack_res = pack_repository(repo, max_tokens=max_tokens)
+
+        from rich.table import Table
+
+        table = Table(title="Repository Context Packing Summary")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="magenta")
+
+        table.add_row("Repository Root", str(repo))
+        table.add_row("Target Provider", provider_name)
+        table.add_row("Context Budget", f"{max_tokens} tokens")
+        table.add_row("Files Scanned", str(pack_res.total_files_scanned))
+        table.add_row("Files Included", str(len(pack_res.included_files)))
+        table.add_row("Files Excluded", str(len(pack_res.excluded_files)))
+        table.add_row("Tokens Included", str(pack_res.total_tokens_included))
+
+        if pack_res.excluded_files:
+            reasons_count: dict[str, int] = {}
+            for _path, reason in pack_res.excluded_files:
+                reasons_count[reason] = reasons_count.get(reason, 0) + 1
+            reason_str = ", ".join(f"{count} {reason}" for reason, count in reasons_count.items())
+            table.add_row("Exclusion Reasons", reason_str)
+
+        console.print(table)
+
+        if dry_run:
+            print_info("Dry run only. Context packed but not sent.")
+            raise typer.Exit(0)
+
+        if not yes:
+            confirmed = typer.confirm("Send repo-packed context to model?")
+            if not confirmed:
+                print_info("Cancelled sending repo-packed context.")
+                raise typer.Exit(0)
+
+        context += pack_res.packed_context
+
     if files:
         for path in files:
             context += _read_context_file(path, header=f"File: {path}")
 
+    if dirs:
+        for path in dirs:
+            if not path.is_dir():
+                print_error(f"Not a directory: {path}")
+                raise typer.Exit(1)
+            tree_text = generate_tree(path)
+            context += f"\n=== Directory tree: {path} ===\n{tree_text}\n"
+
+    if context and not repo:
+        context = trim_context(context, max_tokens=4000)
+
     query_str = " ".join(query)
-    stream = dispatch(ASK_SYSTEM_PROMPT, query_str, context, config, pinned_provider=provider)
+    stream = dispatch(
+        ASK_SYSTEM_PROMPT, query_str, context, config, pinned_provider=provider, use_cache=not no_cache
+    )
     result = stream_response(stream)
+
+    if repo and pack_res:
+        append_command_audit(
+            {
+                "action": "repo_pack",
+                "provider": provider_name,
+                "repo_path": str(repo),
+                "included_files": pack_res.included_files,
+                "total_tokens": pack_res.total_tokens_included,
+                "excluded_files": [
+                    {"path": path, "reason": reason} for path, reason in pack_res.excluded_files
+                ],
+            }
+        )
+
     if is_ai_error(result):
         print_error(result.strip())
         raise typer.Exit(1)
     print_markdown(result)
+
 
 
 @app.command()
@@ -446,7 +538,7 @@ def find(
         raise typer.Exit(1)
 
 
-@app.command()
+@app.command("commit-message")
 def commit(
     provider: str | None = typer.Option(None, "--provider", "-p", help="Pin to a specific provider"),
 ):
@@ -469,6 +561,39 @@ def commit(
         print_error(result.strip())
         raise typer.Exit(1)
     print(result.strip())
+
+
+@app.command()
+def changes(
+    staged: bool = typer.Option(False, "--staged", help="Explain staged changes instead of unstaged changes"),
+    provider: str | None = typer.Option(None, "--provider", "-p", help="Pin to a specific provider"),
+):
+    """Explain unstaged or staged git changes."""
+    args = ["diff", "--staged"] if staged else ["diff"]
+    diff_res = run_git(args)
+    if diff_res.returncode != 0:
+        print_error("Failed to run git diff.")
+        raise typer.Exit(1)
+
+    diff_text = diff_res.stdout.strip()
+    if not diff_text:
+        print_error("No changes found.")
+        raise typer.Exit(1)
+
+    trimmed_diff = trim_context(diff_text, max_tokens=4000)
+    config = load_config()
+    stream = dispatch(
+        CHANGES_SYSTEM_PROMPT,
+        "Explain the changes in this git diff.",
+        trimmed_diff,
+        config,
+        pinned_provider=provider,
+    )
+    result = stream_response(stream)
+    if is_ai_error(result):
+        print_error(result.strip())
+        raise typer.Exit(1)
+    print_markdown(result)
 
 
 @app.command()
@@ -791,6 +916,14 @@ def show_budget():
         )
 
     console.print(table)
+
+
+# Cache commands
+@cache_app.command("clear")
+def cache_clear_cmd():
+    """Clear cached AI responses."""
+    clear_cache()
+    print_success("Cache cleared.")
 
 
 # Workflow commands
