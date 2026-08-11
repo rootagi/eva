@@ -160,6 +160,14 @@ Include a directory tree as context:
 eva ask "Where should I add a new provider?" --dir src/eva
 ```
 
+Pack an entire repository as context (up to provider token budget):
+
+```bash
+eva ask "Explain the overall architecture" --repo . --dry-run
+eva ask "Find potential bugs across the codebase" --repo . --yes
+```
+
+
 Explain a file or directory:
 
 ```bash
@@ -169,7 +177,7 @@ eva explain src/eva/router
 Analyze piped output:
 
 ```bash
-pytest -q | eva analyse "Summarize the failures"
+pytest -q | eva analyze "Summarize the failures"
 ```
 
 Start an interactive chat session:
@@ -222,9 +230,9 @@ eva tree src/eva
 
 | Command | Purpose |
 | --- | --- |
-| `eva ask` | Ask a one-shot question, optionally with file or directory context. |
+| `eva ask` | Ask a one-shot question, optionally with file, directory, or repo-wide packed context (`--repo`, `--dry-run`, `--yes`). |
 | `eva explain` | Explain a file, concept, or repository (with stack detection & module dependency graph). |
-| `eva analyse` / `eva analyze` | Analyze piped terminal output. |
+| `eva analyze` | Analyze piped terminal output. |
 | `eva chat` | Run an interactive chat session, optionally saved and resumed. |
 | `eva work` | Generate and optionally execute a single safe local command. |
 | `eva edit` | Generate a unified diff for one or more files. |

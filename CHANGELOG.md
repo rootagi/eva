@@ -5,6 +5,39 @@ All notable changes to Eva CLI will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Repo-wide context packing (`src/eva/indexing/packer.py`, `src/eva/security/sensitive_files.py`, `src/eva/cli/app.py`):**
+  - Added `--repo` flag to `eva ask` to pack entire repositories as plain-text LLM context up to per-provider token budgets.
+  - Smart deterministic file ranking prioritizing Python module dependency centrality, shallow directory depth, and file size.
+  - Built-in sensitive-file denylist (`DENYLIST_PATTERNS` in `src/eva/security/sensitive_files.py`) excluding `.env`, private keys (`*.pem`, `*.key`), SSH keys (`id_rsa*`, `id_ed25519*`), and credential files independently of `.gitignore` state.
+  - User confirmation prompt gating, Rich table summary reports, and `--dry-run` inspection mode.
+  - Cryptographic hash-chained audit logging (`action: repo_pack`) for provenance recording of sent repo contexts.
+- **Uniform per-provider context budget lookup (`src/eva/providers/__init__.py`):**
+  - Added `get_context_budget(provider_name, config)` returning provider token limits with a conservative default fallback (4000).
+
+- **Disk-backed response caching integration (`src/eva/providers/__init__.py`, `src/eva/cli/app.py`):**
+  - `dispatch()` now checks and populates the disk cache (backed by `diskcache`) before calling the live provider. Repeated identical requests return instantly from cache.
+  - Added `use_cache` parameter to `dispatch()` (default `True`).
+  - Added `--no-cache` flag to `eva ask` to bypass the response cache.
+  - Error responses (matching `is_ai_error()`) are never written to the cache.
+- **Cache command group (`src/eva/cli/app.py`):**
+  - Added `eva cache clear` subcommand to clear all cached responses.
+- **Directory context for ask (`src/eva/cli/app.py`):**
+  - Added `--dir` / `-d` option to `eva ask` to include `.gitignore`-aware directory tree context. Supports multiple `--dir` and combined `--dir` + `--file` options with 4000-token budget context trimming.
+- **Git diff explanation command (`src/eva/cli/app.py`, `src/eva/prompts/__init__.py`):**
+  - Added `eva changes` command (with `--staged` support) to explain git diffs using dedicated `CHANGES_SYSTEM_PROMPT`.
+
+### Changed
+- **Renamed `eva commit` to `eva commit-message` (`src/eva/cli/app.py`):**
+  - Breaking change: renamed CLI command `eva commit` to `eva commit-message` to match documentation. Users scripting against `eva commit` should update their scripts to `eva commit-message`.
+- **Documentation cleanup (`README.md`, `docs/`):**
+  - Removed outdated `eva analyse` references across documentation files in favor of `eva analyze`.
+
+### Removed
+- **Legacy shim cleanup (`src/eva/`):**
+  - Removed unused flat compatibility shim files (`config.py`, `cache.py`, `budget.py`, `work_safety.py`, `git_ops.py`, `chat_session.py`, `diagnostics.py`). Code and tests now import directly from standard package locations (`eva.config`, `eva.cache`, `eva.workflows.budget`, `eva.security.work_safety`, `eva.workspace.git_ops`, `eva.workflows.chat_session`, `eva.telemetry.diagnostics`).
 
 ## [4.0.0] - 2026-08-10
 

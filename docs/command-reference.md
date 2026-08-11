@@ -22,6 +22,12 @@ eva ask "Compare these modules" --file src/eva/cli.py --file src/eva/config.py
 # Include directory context (respects .gitignore)
 eva ask "Where should I add a new provider?" --dir src/eva
 
+# Pack entire repository context up to provider budget (with dry-run summary)
+eva ask "Explain codebase architecture" --repo . --dry-run
+
+# Pack entire repository context and skip confirmation prompt
+eva ask "Find architectural flaws" --repo . --yes
+
 # Bypass response cache
 eva ask "Why did this fail?" --no-cache
 ```
@@ -33,11 +39,11 @@ Explain a file, concept, or repository with automatic stack detection and module
 eva explain src/eva/router
 ```
 
-### `eva analyse` / `eva analyze`
+### `eva analyze`
 Analyze piped terminal output from stdin. Useful for diagnostic analysis of test failures or build logs.
 
 ```bash
-pytest -q | eva analyse "Summarize the test failures and root cause"
+pytest -q | eva analyze "Summarize the test failures and root cause"
 ```
 
 ### `eva chat`

@@ -28,6 +28,17 @@ Eva automatically redacts sensitive credentials **before** data is transmitted t
 
    Tokens exceeding the threshold (entropy > 3.5 bits/character) are automatically redacted as `[REDACTED_HIGH_ENTROPY]`.
 
+### Sensitive-File Denylist (Repo Context Packing)
+
+Because `.gitignore` is not a security boundary, repository context packing (`eva ask --repo`) applies an explicit built-in denylist (`DENYLIST_PATTERNS`) **before** file contents are read, regardless of `.gitignore` state:
+
+- **Environment Files**: `.env`, `.env.*`, `*.env`
+- **Private Keys & Certificates**: `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`
+- **SSH Keys**: `id_rsa*`, `id_dsa*`, `id_ecdsa*`, `id_ed25519*`
+- **Known Credentials & Tokens**: `credentials.json`, `credentials.*`, `secrets.*`, `.netrc`, `.npmrc`, `.pypirc`, `*.tfvars`
+
+This denylist is applied as defense-in-depth alongside automatic text secret redaction (`redact_secrets`), which remains active on all packed text before provider transmission.
+
 ---
 
 ## 2. Hash-Chained Audit Log
