@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [4.1.0] - 2026-08-11
 
 ### Added
-- ** Agentic Repo Exploration (`eva investigate`):**
+- **Agentic Repo Exploration (`eva investigate`):**
   - Added `eva investigate <query> [path]` command for multi-turn, query-driven codebase exploration using tool calling (`list_directory`, `read_file`, `search_code`).
   - Added optional tool-calling capabilities to Provider protocol (`supports_tools`, `TextDelta`/`ToolCall` streaming events, `generate_with_tools`).
   - Implemented streamed tool calling for OpenAI-compatible providers (`groq`, `openrouter`, `opencode_zen`) and `GeminiProvider`.
