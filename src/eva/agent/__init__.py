@@ -10,4 +10,3 @@ __all__ = [
     "run_investigation",
     "search_code",
 ]
-

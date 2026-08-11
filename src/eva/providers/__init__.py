@@ -91,7 +91,6 @@ def get_tool_capable_providers() -> list[str]:
     return [name for name, p in _PROVIDERS.items() if getattr(p, "supports_tools", False) is True]
 
 
-
 def get_context_budget(provider_name: str, config: AppConfig) -> int:
     """Return effective max context tokens for provider: config > provider class default > 4000."""
     if config and hasattr(config, "providers"):
@@ -115,13 +114,11 @@ def get_effective_context_tokens(provider_name: str, config: AppConfig) -> int:
     return get_context_budget(provider_name, config)
 
 
-
 def _resolve_provider_name(config: AppConfig, pinned_provider: str | None = None) -> str:
     """Return the provider name that dispatch will actually use."""
     if pinned_provider:
         return pinned_provider
     return config.general.default_provider
-
 
 
 def dispatch(

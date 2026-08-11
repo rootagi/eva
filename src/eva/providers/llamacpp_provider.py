@@ -48,7 +48,6 @@ class LlamaCppProvider(OpenAICompatibleProvider):
         max_tokens = get_effective_context_tokens(self.name, config)
         trimmed_context = trim_context(context, max_tokens=max_tokens) if context else ""
 
-
         messages = [{"role": "system", "content": system_prompt}]
         if trimmed_context:
             messages.append({"role": "user", "content": f"Context:\n{trimmed_context}"})

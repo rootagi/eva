@@ -43,4 +43,3 @@ def setup_logging(verbose: bool = False):
     root.addHandler(stream_handler)
 
     _logging_configured = True
-

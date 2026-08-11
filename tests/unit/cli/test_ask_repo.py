@@ -95,4 +95,3 @@ def test_ask_repo_no_audit_logging_on_dry_run_or_decline(tmp_path):
     ):
         runner.invoke(app, ["ask", "Explain", "--repo", str(tmp_path)])
         mock_audit.assert_not_called()
-

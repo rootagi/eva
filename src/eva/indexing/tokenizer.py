@@ -122,7 +122,6 @@ def trim_context(text: str, max_tokens: int, keep: str = "head") -> str:
             return "...[Context Trimmed]...\n" + encoding.decode(tokens[-max_tokens:])
         return encoding.decode(tokens[:max_tokens]) + "\n...[Context Trimmed]..."
 
-
     # Fallback: approximate by characters
     max_chars = max_tokens * 4
     if len(text) <= max_chars:

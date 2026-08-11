@@ -88,9 +88,7 @@ class OpenAICompatibleProvider(Provider):
         ]
 
         try:
-            stream = client.chat.completions.create(
-                model=model, messages=messages, tools=openai_tools, stream=True
-            )
+            stream = client.chat.completions.create(model=model, messages=messages, tools=openai_tools, stream=True)
 
             accumulated_tool_calls: dict[int, dict] = {}
 
@@ -146,4 +144,3 @@ class OpenAICompatibleProvider(Provider):
     def _resolve_model(self, config_model: str) -> str:
         """Override in subclasses to implement dynamic model resolution."""
         return config_model
-

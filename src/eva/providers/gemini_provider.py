@@ -135,7 +135,6 @@ class GeminiProvider(Provider):
             raise
 
 
-
 def get_models() -> list[dict]:
     api_key = get_api_key("gemini")
     if not api_key:

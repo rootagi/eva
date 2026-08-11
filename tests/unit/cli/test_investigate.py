@@ -23,7 +23,9 @@ def test_investigate_command_success_with_yes(tmp_path):
         patch.object(app_module, "run_investigation", return_value=mock_res) as mock_run,
         patch.object(app_module, "append_investigation_audit") as mock_audit,
     ):
-        result = runner.invoke(app, ["investigate", "where is entry point?", str(tmp_path), "--yes", "--provider", "groq"])
+        result = runner.invoke(
+            app, ["investigate", "where is entry point?", str(tmp_path), "--yes", "--provider", "groq"]
+        )
 
     assert result.exit_code == 0
     mock_run.assert_called_once()
@@ -64,4 +66,3 @@ def test_investigate_command_unsupported_provider_exits_early(tmp_path):
     mock_run.assert_not_called()
     mock_audit.assert_not_called()
     assert "does not support agentic exploration" in result.output
-

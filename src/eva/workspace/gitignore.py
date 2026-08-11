@@ -19,7 +19,6 @@ ALWAYS_IGNORED_DIRS = {
 }
 
 
-
 def get_gitignore_spec(root_dir: Path) -> pathspec.PathSpec | None:
     gitignore_path = root_dir / ".gitignore"
     if not gitignore_path.exists():

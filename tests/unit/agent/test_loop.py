@@ -55,8 +55,7 @@ def test_agent_loop_executes_tools_and_returns_final_answer(tmp_path):
 
 def test_agent_loop_stops_at_max_turns(tmp_path):
     turns_script = [
-        [ToolCall(call_id=f"call_{i}", name="list_directory", arguments={"path": f"dir_{i}"})]
-        for i in range(10)
+        [ToolCall(call_id=f"call_{i}", name="list_directory", arguments={"path": f"dir_{i}"})] for i in range(10)
     ]
     provider = ScriptedFakeProvider(turns_script)
     config = AppConfig()

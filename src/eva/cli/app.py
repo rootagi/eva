@@ -150,9 +150,7 @@ def ask(
         "--repo",
         help="Pack the entire repository (respecting .gitignore and sensitive-file exclusions) as context, up to the active provider's context budget",
     ),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Show what would be packed and sent, without sending it"
-    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be packed and sent, without sending it"),
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Skip the confirmation prompt before sending repo-wide context"
     ),
@@ -223,9 +221,7 @@ def ask(
         context = trim_context(context, max_tokens=4000)
 
     query_str = " ".join(query)
-    stream = dispatch(
-        ASK_SYSTEM_PROMPT, query_str, context, config, pinned_provider=provider, use_cache=not no_cache
-    )
+    stream = dispatch(ASK_SYSTEM_PROMPT, query_str, context, config, pinned_provider=provider, use_cache=not no_cache)
     result = stream_response(stream)
 
     if repo and pack_res:
@@ -236,9 +232,7 @@ def ask(
                 "repo_path": str(repo),
                 "included_files": pack_res.included_files,
                 "total_tokens": pack_res.total_tokens_included,
-                "excluded_files": [
-                    {"path": path, "reason": reason} for path, reason in pack_res.excluded_files
-                ],
+                "excluded_files": [{"path": path, "reason": reason} for path, reason in pack_res.excluded_files],
             }
         )
 
@@ -246,7 +240,6 @@ def ask(
         print_error(result.strip())
         raise typer.Exit(1)
     print_markdown(result)
-
 
 
 @app.command()

@@ -217,11 +217,13 @@ def run_investigation(
             }
             for tc in tool_calls
         ]
-        messages.append({
-            "role": "assistant",
-            "content": turn_text if turn_text else None,
-            "tool_calls": formatted_tool_calls,
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": turn_text if turn_text else None,
+                "tool_calls": formatted_tool_calls,
+            }
+        )
 
         for tc in tool_calls:
             if on_tool_start:
@@ -231,12 +233,14 @@ def run_investigation(
             if is_read and path_read:
                 files_read_set.add(path_read)
 
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.call_id,
-                "name": tc.name,
-                "content": res_str,
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.call_id,
+                    "name": tc.name,
+                    "content": res_str,
+                }
+            )
 
     note = f"\n\n[Note: Reached maximum turn limit of {max_turns} turns.]"
     return InvestigationResult(

@@ -28,7 +28,6 @@ def test_local_providers_report_not_tool_capable():
     assert "llamacpp" not in get_tool_capable_providers()
 
 
-
 def test_tool_event_dataclasses():
     delta = TextDelta(content="hello")
     assert delta.content == "hello"

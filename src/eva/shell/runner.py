@@ -9,4 +9,3 @@ def execute_shell_command(
 ) -> subprocess.CompletedProcess[str]:
     """Execute a single shell command inside a sandboxed environment."""
     return run_sandboxed(command, cwd=cwd, timeout=timeout, allow_shell_features=True)
-

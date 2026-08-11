@@ -24,4 +24,3 @@ def test_get_context_budget_config_override():
     config.providers["opencode_zen"] = ProviderConfig(model="big-pickle", max_context_tokens=32000)
     budget = get_context_budget("opencode_zen", config)
     assert budget == 32000
-

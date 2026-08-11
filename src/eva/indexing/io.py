@@ -32,4 +32,3 @@ def read_text_file_for_context(path: Path, max_bytes: int = MAX_CONTEXT_FILE_BYT
         warnings.append(f"{path} is {size} bytes; only the first {max_bytes} bytes were read.")
 
     return data.decode("utf-8", errors="replace"), warnings
-

@@ -48,7 +48,6 @@ def _matches_sensitive_denylist(relative_path: str) -> bool:
     return is_sensitive_file(relative_path)
 
 
-
 def _module_name(relative_path: str) -> str | None:
     path = Path(relative_path)
     if path.suffix != ".py":
@@ -126,9 +125,7 @@ def _candidate_sort_key(candidate: _PackCandidate) -> tuple[int, int, int, str]:
     )
 
 
-def pack_repository(
-    root: Path, max_tokens: int, extra_ignore_patterns: list[str] | None = None
-) -> PackResult:
+def pack_repository(root: Path, max_tokens: int, extra_ignore_patterns: list[str] | None = None) -> PackResult:
     """Pack eligible repository files into a token-bounded plain-text context.
 
     The directory tree is always placed before file sections. File contents use
@@ -172,9 +169,7 @@ def pack_repository(
             excluded_files.append((relative_path, reason))
             continue
 
-        candidates.append(
-            _PackCandidate(relative_path=relative_path, text=text, size_bytes=path.stat().st_size)
-        )
+        candidates.append(_PackCandidate(relative_path=relative_path, text=text, size_bytes=path.stat().st_size))
 
     dependency_scores = _dependency_scores(root_path)
     for candidate in candidates:

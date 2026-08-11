@@ -70,4 +70,3 @@ def test_pack_repository_keeps_tree_when_budget_excludes_files(tmp_path):
     assert "# Repository tree" in result.packed_context
     assert "src" in result.packed_context
     assert any(reason == "budget_exceeded" for _, reason in result.excluded_files)
-
