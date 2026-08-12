@@ -1,4 +1,3 @@
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -6,6 +5,7 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
+from eva.replay.crypto import decrypt_json_line
 from eva.replay.recorder import get_replays_dir, get_session_dir
 
 logger = logging.getLogger(__name__)
@@ -26,14 +26,15 @@ def list_replay_sessions(replays_dir: Path | None = None) -> list[dict[str, Any]
             count = 0
             if meta_file.exists():
                 try:
-                    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                    meta = decrypt_json_line(meta_file.read_bytes())
                     created_at = meta.get("created_at", created_at)
                 except (OSError, ValueError) as exc:
                     logger.debug("Failed to read replay metadata %s: %s", meta_file, exc)
             if events_file.exists():
                 try:
-                    count = len([line for line in events_file.read_text(encoding="utf-8").splitlines() if line.strip()])
-                except (OSError, ValueError) as exc:
+                    with open(events_file, "rb") as f:
+                        count = sum(1 for line in f if line.strip())
+                except OSError as exc:
                     logger.debug("Failed to read replay events %s: %s", events_file, exc)
             sessions.append(
                 {
@@ -54,10 +55,10 @@ def load_replay_session(session_id: str, replays_dir: Path | None = None) -> lis
         raise FileNotFoundError(f"Replay session '{session_id}' not found.")
 
     events = []
-    with open(events_file, "r", encoding="utf-8") as f:
+    with open(events_file, "rb") as f:
         for line in f:
             if line.strip():
-                events.append(json.loads(line))
+                events.append(decrypt_json_line(line))
     return events
 
 

@@ -16,4 +16,4 @@ This directory contains the official documentation for Eva CLI, mirroring the co
 
 ## Version
 
-This documentation corresponds to **Eva CLI v4.1.0**.
+This documentation corresponds to **Eva CLI v4.2.1**.

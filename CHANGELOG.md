@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [4.2.1] - 2026-08-12
+
+### Security
+- **Replay session data encrypted at rest (`src/eva/replay/`):**
+  - Fixed a high-severity finding from GitHub code scanning: `meta.json` and `events.jsonl` under a session's replay directory were written as plaintext JSON. Terminal output can contain sensitive data that `redact_secrets()` doesn't catch (PII, internal hostnames, proprietary output), so replay files are now encrypted at rest as a second, independent layer.
+  - Added `src/eva/replay/crypto.py`: encrypts/decrypts replay records using `Fernet` (AES-128-CBC + HMAC via the `cryptography` package).
+  - Key storage follows the existing API-key pattern in `eva.config.config`: the key is stored in the OS keyring by default, falling back to a mode-`0600` file in the config directory when no keyring backend is available (e.g. headless CI, containers), so replay recording never hard-fails a command.
+  - `record_replay_event` now encrypts each record before it's written; file permissions on `meta.json` and `events.jsonl` are additionally restricted to `0600` as defense-in-depth.
+  - `load_replay_session` / `list_replay_sessions` transparently decrypt records, with a fallback to plain `json.loads` on `InvalidToken` so replay data recorded before this change continues to load correctly. No migration required.
+  - Added `cryptography>=43.0.0,<47.0.0` as a project dependency.
+
 ## [4.1.0] - 2026-08-11
 
 ### Added

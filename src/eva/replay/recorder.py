@@ -1,8 +1,8 @@
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 from eva.config import get_config_dir
+from eva.replay.crypto import encrypt_json, restrict_permissions
 from eva.security.redaction import redact_secrets
 
 
@@ -30,23 +30,23 @@ def record_replay_event(
 ):
     """Record a terminal execution event to session replay log.
 
-    Secrets in command, output, and cwd are redacted at write time.
+    Secrets in command, output, and cwd are redacted at write time,
+    and each record is encrypted at rest.
     """
     target_dir = (replays_dir / session_id) if replays_dir else get_session_dir(session_id)
     target_dir.mkdir(parents=True, exist_ok=True)
 
     meta_file = target_dir / "meta.json"
     if not meta_file.exists():
-        meta_file.write_text(
-            json.dumps(
+        meta_file.write_bytes(
+            encrypt_json(
                 {
                     "session_id": session_id,
                     "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
+                }
+            )
         )
+        restrict_permissions(meta_file)
 
     events_file = target_dir / "events.jsonl"
 
@@ -63,5 +63,6 @@ def record_replay_event(
         "cwd": clean_cwd,
     }
 
-    with open(events_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+    with open(events_file, "ab") as f:
+        f.write(encrypt_json(record) + b"\n")
+    restrict_permissions(events_file)
