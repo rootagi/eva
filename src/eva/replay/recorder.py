@@ -63,5 +63,8 @@ def record_replay_event(
         "cwd": clean_cwd,
     }
 
+    serialized_record = json.dumps(record)
+    sanitized_record = redact_secrets(serialized_record)
+
     with open(events_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+        f.write(sanitized_record + "\n")
