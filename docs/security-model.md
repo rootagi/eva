@@ -21,14 +21,16 @@ Eva automatically redacts sensitive credentials **before** data is transmitted t
    - **Generic Secret Assignments**: `api_key`, `secret`, `password`, `auth_token`, `access_token`
    - **PEM Private Key Blocks**: `-----BEGIN [RSA|EC|DSA|OPENSSH] PRIVATE KEY-----`
 
-2. **Shannon Entropy Analysis**:
+2. **Shannon Entropy Analysis (Path-Aware)**:
    For any string `S` with length >= 16 characters, Eva calculates its Shannon entropy:
 
    `H(S) = - ∑ p(x) * log2(p(x))`
 
-   Tokens exceeding the threshold (entropy > 3.5 bits/character) are automatically redacted as `[REDACTED_HIGH_ENTROPY]`.
+   - **Path-Aware Tokenization**: For Unix/Windows filesystem paths containing `/`, entropy is evaluated per path segment rather than treating the entire path as a single high-entropy token, preventing false-positive redaction on normal file paths (e.g. `~/.local/share/icons/.../app.png`).
+   - **Configurable Threshold**: The default threshold is `3.5` bits/character. Can be tuned via `eva config set-redaction-threshold <val>` (setting to `8.0` disables entropy-based redactions while preserving deterministic regex safety).
+   - **Pattern Exemption**: Safe environment variable formats or tokens can be exempted via `eva config allow-redaction-pattern <regex>`.
 
-### Sensitive-File Denylist (Repo Context Packing & Agentic Investigation)
+### Sensitive-File Denylist & Overrides (Repo Packing & Agentic Exploration)
 
 Because `.gitignore` is not a security boundary, repository context packing (`eva ask --repo`) and agentic repo exploration (`eva investigate`) apply an explicit built-in denylist (`DENYLIST_PATTERNS`) **before** file contents are read, regardless of `.gitignore` state:
 
@@ -37,16 +39,19 @@ Because `.gitignore` is not a security boundary, repository context packing (`ev
 - **SSH Keys**: `id_rsa*`, `id_dsa*`, `id_ecdsa*`, `id_ed25519*`
 - **Known Credentials & Tokens**: `credentials.json`, `credentials.*`, `secrets.*`, `.netrc`, `.npmrc`, `.pypirc`, `*.tfvars`
 
-This denylist is applied as defense-in-depth alongside automatic text secret redaction (`redact_secrets`), which remains active on all text before provider transmission.
+#### Defense-in-Depth Overrides & Auditing
+- **Persistent Allowlist**: Specific non-secret template files can be exempted via `eva config allow-sensitive-file <glob>`.
+- **Audited Force-Include (`--force-include`)**: Users can explicitly pass `--force-include <pattern>` to `eva investigate` or `eva ask --repo`. Every force-included access to a denylisted file is recorded in the append-only SHA-256 hash-chained audit log with action `sensitive_file_override`.
 
 ### Agentic Investigation Tool Security (`eva investigate`)
 
 For Codex-style agentic exploration (`eva investigate`), all tool invocations (`list_directory`, `read_file`, `search_code`) operate under strict defense-in-depth rules:
 
 1. **Strict Path Containment**: Every invocation enforces relative root containment via `Path.resolve()`. Any path traversal outside the repository root (`../` escape) is rejected with a structured error without raising unhandled exceptions.
-2. **Denylist & Gitignore Exclusion**: Denylisted files and `.gitignore`-matched paths are hidden from `list_directory` listings and `search_code` hits, and rejected with a security error on `read_file`.
+2. **Denylist & Gitignore Exclusion**: Denylisted files and `.gitignore`-matched paths are hidden from `list_directory` listings and `search_code` hits, and rejected with a security error on `read_file` (unless explicitly force-included).
 3. **Secret Redaction**: Content returned by `read_file` and matching lines from `search_code` pass through `redact_secrets()` before being added to model context.
 4. **Session Audit Logging**: Each completed or partial investigation session appends a hash-chained audit entry recording the query, provider, relative `files_read`, turn count, and `stopped_reason`.
+
 
 
 ---

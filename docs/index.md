@@ -73,11 +73,15 @@ eva --install-completion
 
 ## Key Features
 
-1. **One-Shot Queries**: `eva ask "How do I untar a gz archive?"`
+1. **One-Shot Queries**: `eva ask "How do I untar a gz archive?"` (supports `--format json`).
 2. **Context-Aware Analysis**: Pass `--file` or `--dir` context safely with `.gitignore` filtering.
-3. **Terminal Pipeline Analysis**: Pipe command output directly into `eva analyze`.
-4. **Interactive Session Chat**: Persistent sessions with `eva chat --session <id>`.
-5. **Safe Command Generation**: Natural language command generation via `eva work` with `--dry-run`, `--dry-run-explain`, and safety checks.
-6. **Git & Patch Workflows**: Reviewable diff generation with `eva edit` and automated commit messages via `eva commit-message`.
-7. **Plugin Architecture**: Extend Eva with custom commands and providers via `EvaPlugin` subclasses and Python entry points.
-8. **Rust Performance**: Optional `eva-fastwalk` extension for native-speed file discovery.
+3. **Repository Packing & Agentic Investigation**: `eva ask --repo .` and `eva investigate` for query-driven codebase exploration.
+4. **Project Memory (`.eva/context.md`)**: Automatically injects repository-level instructions into `ask` and `work` prompts.
+5. **Terminal Pipeline Analysis**: Pipe command output directly into `eva analyze`.
+6. **Interactive Session Chat**: Persistent sessions with `eva chat --session <id>`.
+7. **Safe Command Generation**: Natural language command generation via `eva work` with `--dry-run`, `--dry-run-explain`, and safety checks.
+8. **Git & Patch Workflows**: Reviewable diff generation with `eva edit` and automated commit messages via `eva commit-message`.
+9. **Fine-Grained Security Controls**: Path-aware secret redaction, configurable Shannon entropy thresholds, sensitive file allowlists, and SHA-256 hash-chained audit logging.
+10. **Plugin Architecture**: Extend Eva with custom commands and providers via `EvaPlugin` subclasses and Python entry points.
+11. **Rust Performance**: Optional `eva-fastwalk` extension for native-speed file discovery.
+

@@ -57,10 +57,13 @@ The design goal is practical: keep routine terminal work fast and local, "Can't 
 - Streaming responses with disk-backed caching.
 - Local RPM/RPD budget tracking to avoid unexpectedly exhausting free-tier provider quotas.
 - `.gitignore`-aware context collection with common heavy directories pruned automatically.
+- Project memory support via `.eva/context.md` for repo-level instructions (`eva context show`).
+- Structured machine-readable output mode (`--format json`) for scripting and CI integration.
 - Safe file-context reads with missing-file, binary-file, large-file, and invalid-UTF-8 handling.
 - Hardened command generation via `eva work`: strict parsing, risk checks, no `shell=True`, dry-run mode, and audit logging.
 - Git-aware workflows for explaining diffs and generating commit messages.
 - Reviewable patch generation with `eva edit`.
+- Fine-grained security tuning: path-aware secret redaction, configurable Shannon entropy thresholds, and sensitive file allowlists (`eva config allow-sensitive-file`).
 - Health checks through `eva config doctor`.
 - Persistent chat sessions with `eva chat --session`.
 

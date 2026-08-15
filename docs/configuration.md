@@ -57,6 +57,14 @@ telemetry_enabled = false
 sandbox_risky_commands = true
 allowed_command_prefixes = ["git", "npm", "cargo", "pytest", "ls"]
 
+# v4.3.1 Configurability Options:
+redaction_entropy_threshold = 3.5          # Default: 3.5 bits/char (0.0 to 8.0)
+redaction_ignore_patterns = ["^SAFE_.*"]  # Regex patterns exempt from secret redaction
+extra_ignored_dirs = ["build_scratch"]    # Additional directories to exclude from indexing
+unignore_dirs = []                        # Directories to unignore from default ignore list
+sensitive_file_allowlist = ["*.staging.env"] # Glob patterns exempt from sensitive file denylist
+context_token_limit = 4000                # Optional context budget token limit override (null = provider default)
+
 [providers.groq]
 model = "llama-3.3-70b-versatile"
 temperature = 0.2
@@ -65,6 +73,62 @@ temperature = 0.2
 model = "anthropic/claude-3.5-sonnet"
 temperature = 0.2
 ```
+
+---
+
+## Secret Redaction & Shannon Entropy Tuning
+
+Eva features a two-layer secret redaction engine: deterministic regex pattern matching and Shannon entropy analysis. You can tune the sensitivity or exempt specific token patterns without disabling safety defaults:
+
+### Setting Entropy Threshold
+```bash
+# Set entropy threshold (default: 3.5 bits/char; 8.0 disables entropy-based redaction)
+eva config set-redaction-threshold 4.0
+```
+
+### Redaction Ignore Patterns
+Exempt specific safe tokens or environment variable prefixes from redaction:
+```bash
+eva config allow-redaction-pattern "^CUSTOM_SAFE_PREFIX_.*"
+eva config disallow-redaction-pattern "^CUSTOM_SAFE_PREFIX_.*"
+```
+
+---
+
+## Ignored Directories Overrides
+
+By default, Eva automatically ignores standard heavy and cache directories (`.git`, `node_modules`, `__pycache__`, `.venv`, `.eva`, etc.) during file discovery and repo-wide packing:
+
+```bash
+# Add custom directory to process-wide ignored directories
+eva config ignore-dir build_artifacts
+
+# Unignore a previously ignored directory
+eva config unignore-dir build_artifacts
+```
+
+---
+
+## Sensitive File Allowlist & Overrides
+
+Eva protects credentials by denylisting sensitive file types (`.env`, `*.pem`, `*.key`, `secrets.*`, `credentials.json`, `id_rsa*`). You can allowlist non-secret template files or override on a per-command basis:
+
+### Persistent Allowlist
+```bash
+# Add glob pattern to sensitive file allowlist
+eva config allow-sensitive-file "*.staging.env"
+
+# Remove glob pattern from allowlist
+eva config disallow-sensitive-file "*.staging.env"
+```
+
+### Per-Command `--force-include`
+For one-off agentic investigations or repo packing involving specific files:
+```bash
+eva investigate "Analyze certificate configuration" . --force-include server.pem --yes
+eva ask "Inspect staging environment" --repo . --force-include .env.staging --yes
+```
+> **Audit Note:** Every use of `--force-include` on a denylisted file is automatically recorded in the SHA-256 hash-chained audit log with action `sensitive_file_override`.
 
 ---
 
@@ -137,4 +201,6 @@ Specify active models per provider:
 ```bash
 eva config set-model groq llama-3.3-70b-versatile
 eva config set-model openrouter anthropic/claude-3.5-sonnet
+eva config set-model opencode_zen nemotron-3.5-lightning-free
 ```
+

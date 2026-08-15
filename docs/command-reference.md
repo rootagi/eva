@@ -30,6 +30,12 @@ eva ask "Find architectural flaws" --repo . --yes
 
 # Bypass response cache
 eva ask "Why did this fail?" --no-cache
+
+# Structured JSON output for scripting and CI
+eva ask "List open issues" --format json
+
+# Bypass .eva/context.md project memory
+eva ask "What is the entry point?" --no-project-context
 ```
 
 ### `eva investigate`
@@ -41,6 +47,9 @@ eva investigate "Find how CLI commands are registered and explain the app flow" 
 
 # Custom turn cap and provider
 eva investigate "Trace where budget limits are checked" . --max-turns 10 --provider groq --yes
+
+# Force include specific denylisted files (audited)
+eva investigate "Analyze security certificates" . --force-include server.pem --yes
 ```
 
 #### Comparison: `eva investigate` vs `eva ask --repo`
@@ -51,12 +60,16 @@ eva investigate "Trace where budget limits are checked" . --max-turns 10 --provi
 | **Tool Calling** | None | `list_directory`, `read_file`, `search_code` |
 | **Token Usage** | Pre-packs files up to token budget | Reads only files needed for the query |
 | **Supported Providers** | All providers | Tool-capable providers (`groq`, `openrouter`, `opencode_zen`, `gemini`) |
+| **Sensitive Overrides** | Supported (`--force-include`) | Supported (`--force-include`) |
 
 ### `eva explain`
 Explain a file, concept, or repository with automatic stack detection and module dependency graph extraction.
 
 ```bash
 eva explain src/eva/router
+
+# Structured JSON output
+eva explain src/eva/security --format json
 ```
 
 ### `eva analyze`
@@ -89,6 +102,9 @@ eva work "find all TODO comments" --dry-run-explain
 
 # Re-enable shell feature evaluation (pipes / redirects)
 eva work "find top memory using processes" --allow-shell-features
+
+# Bypass repository .eva/context.md project memory
+eva work "format codebase" --no-project-context
 ```
 
 ### `eva edit`
@@ -101,6 +117,19 @@ eva edit "add validation for empty provider names" --file src/eva/cli.py
 # Apply generated patch directly after confirmation
 eva edit "add validation for empty provider names" --file src/eva/cli.py --apply
 ```
+
+---
+
+## Project Memory Commands
+
+### `eva context show`
+Display project memory loaded from `.eva/context.md` at the repository root.
+
+```bash
+eva context show
+```
+
+> **Note:** `.eva/context.md` is automatically loaded into prompt context for `eva ask` and `eva work` to provide project-specific conventions without needing manual `--file` flags.
 
 ---
 
@@ -174,14 +203,39 @@ These utility commands run 100% locally and consume no LLM provider quota.
 ## Configuration Commands
 
 ```bash
-eva config set-key <provider>               # Store key in OS keyring
-eva config remove-key <provider>            # Remove key from OS keyring
-eva config set-model <provider> <model>     # Configure default model for provider
-eva config doctor                           # Run diagnostic health check on environment
-eva config allow-command <prefix>           # Add command prefix to execution allowlist
-eva config disallow-command <prefix>        # Remove command prefix from execution allowlist
-eva config import-allowlist <path>          # Import allowlist from a file
+eva config set-key <provider>                  # Store key in OS keyring
+eva config remove-key <provider>               # Remove key from OS keyring
+eva config set-model <provider> <model>        # Configure default model for provider
+eva config doctor                              # Run diagnostic health check on environment
+eva config allow-command <prefix>              # Add command prefix to execution allowlist
+eva config disallow-command <prefix>           # Remove command prefix from execution allowlist
+eva config import-allowlist <path>             # Import allowlist from a file
+eva config set-redaction-threshold <val>       # Set Shannon entropy threshold (default 3.5)
+eva config allow-redaction-pattern <regex>     # Add regex pattern to secret redaction ignore list
+eva config disallow-redaction-pattern <regex>  # Remove pattern from secret redaction ignore list
+eva config ignore-dir <name>                   # Add directory to process-wide ignored dirs
+eva config unignore-dir <name>                 # Remove directory from process-wide ignored dirs
+eva config allow-sensitive-file <glob>         # Add glob pattern to sensitive file allowlist
+eva config disallow-sensitive-file <glob>      # Remove glob pattern from sensitive file allowlist
 ```
+
+---
+
+## Scripting & Automation Options
+
+Eva commands accept global and command-specific automation flags:
+
+- `--format json|text`: Supported on `eva ask` and `eva explain` to output deterministic machine-readable JSON:
+  ```json
+  {
+    "content": "Explanation or answer text...",
+    "is_error": false,
+    "provider": "groq",
+    "model": "llama-3.3-70b-versatile"
+  }
+  ```
+- `--no-project-context`: Skip auto-injecting repository-level `.eva/context.md` project memory.
+- `--force-include <pattern>`: Authorize reading specific denylisted sensitive files (`*.pem`, `.env`, etc.) in `eva investigate` and `eva ask --repo`.
 
 ---
 
@@ -194,4 +248,3 @@ eva --install-completion                    # Install shell completion (bash/zsh
 eva --show-completion                       # Print shell completion script
 ```
 
-Verbose mode writes diagnostics to stderr and to Eva's log file.
