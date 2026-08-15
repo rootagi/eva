@@ -19,6 +19,16 @@ ALWAYS_IGNORED_DIRS = {
 }
 
 
+_effective_ignored_dirs: set[str] = set(ALWAYS_IGNORED_DIRS) | {".eva"}
+
+
+def configure_ignored_dirs(extra: list[str], unignore: list[str]) -> None:
+    """Set the process-wide always-ignored directory set. Call once at startup."""
+    global _effective_ignored_dirs
+    base = (set(ALWAYS_IGNORED_DIRS) | {".eva"}) - set(unignore)
+    _effective_ignored_dirs = base | set(extra)
+
+
 def get_gitignore_spec(root_dir: Path) -> pathspec.PathSpec | None:
     gitignore_path = root_dir / ".gitignore"
     if not gitignore_path.exists():
@@ -32,7 +42,7 @@ def get_gitignore_spec(root_dir: Path) -> pathspec.PathSpec | None:
 def is_ignored(path: Path, root_dir: Path, spec: pathspec.PathSpec | None) -> bool:
     try:
         rel_path = path.relative_to(root_dir)
-        if any(part in ALWAYS_IGNORED_DIRS for part in rel_path.parts):
+        if any(part in _effective_ignored_dirs for part in rel_path.parts):
             return True
 
         if spec is None:

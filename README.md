@@ -269,11 +269,17 @@ eva tree src/eva
 | `eva find` | Find files locally without AI usage. |
 | `eva tree` | Print a `.gitignore`-aware directory tree. |
 | `eva usage` | Show normalized local provider usage counters. |
-
-
+| `eva context show` | Display project memory from `.eva/context.md` if present. |
 | `eva config set-key <provider>` | Store an API key in the OS keyring. |
 | `eva config remove-key <provider>` | Delete a stored API key from the OS keyring. |
 | `eva config set-model <provider> <model>` | Set active model for a provider. |
+| `eva config set-redaction-threshold <val>` | Set entropy threshold for secret redaction (default 3.5). |
+| `eva config allow-redaction-pattern <regex>` | Add regex pattern exempt from secret redaction. |
+| `eva config disallow-redaction-pattern <regex>` | Remove regex pattern from redaction ignore list. |
+| `eva config ignore-dir <name>` | Add directory name to process-wide ignored directories. |
+| `eva config unignore-dir <name>` | Remove directory name from ignored directories. |
+| `eva config allow-sensitive-file <glob>` | Add glob pattern to sensitive file allowlist. |
+| `eva config disallow-sensitive-file <glob>` | Remove glob pattern from sensitive file allowlist. |
 | `eva config` | Manage provider, model, and API-key configuration. |
 | `eva cache clear` | Clear cached AI responses. |
 
@@ -285,7 +291,14 @@ eva --version
 eva --verbose ask "Why did this fail?"
 ```
 
+Scripting & Automation Options:
+
+- `--format json|text`: Supported on `eva ask` and `eva explain` for structured machine-readable JSON output (`{"content": ..., "is_error": ..., "provider": ...}`).
+- `--no-project-context`: Suppress auto-inclusion of `.eva/context.md` project memory for one-shot runs in `eva ask` or `eva work`.
+- `--force-include <pattern>`: Force-include specific sensitive files (e.g. `*.pem`, `.env`) in `eva investigate` or `eva ask --repo` with hash-chained audit logging.
+
 Verbose mode writes diagnostics to stderr and to Eva’s log file.
+
 
 ## Safety model & Production Hardening
 

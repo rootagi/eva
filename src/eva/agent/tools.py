@@ -27,7 +27,7 @@ def _is_within_root(target: Path, root: Path) -> bool:
         return False
 
 
-def list_directory(root: Path, path: str = ".") -> list[dict]:
+def list_directory(root: Path, path: str = ".", force_include: set[str] = frozenset()) -> list[dict]:
     """List directory entries relative to root, excluding gitignored and denylisted paths."""
     root_path = root.resolve()
     try:
@@ -57,7 +57,7 @@ def list_directory(root: Path, path: str = ".") -> list[dict]:
         except ValueError:
             continue
 
-        if is_sensitive_file(rel_str):
+        if is_sensitive_file(rel_str) and rel_str not in force_include and item.name not in force_include:
             continue
 
         if item.is_dir():
@@ -72,7 +72,7 @@ def list_directory(root: Path, path: str = ".") -> list[dict]:
     return entries
 
 
-def read_file(root: Path, path: str) -> ToolResult:
+def read_file(root: Path, path: str, force_include: set[str] = frozenset()) -> ToolResult:
     """Read a text file from root, enforcing path containment, denylist, and secret redaction."""
     root_path = root.resolve()
     try:
@@ -88,7 +88,7 @@ def read_file(root: Path, path: str) -> ToolResult:
     except ValueError:
         return ToolResult(success=False, error="Path traversal outside repository root is forbidden")
 
-    if is_sensitive_file(rel_path):
+    if is_sensitive_file(rel_path) and rel_path not in force_include and target_path.name not in force_include:
         return ToolResult(success=False, error="File is excluded for security reasons")
 
     gitignore_spec = get_gitignore_spec(root_path)
@@ -109,7 +109,9 @@ def read_file(root: Path, path: str) -> ToolResult:
     return ToolResult(success=True, content=redacted_text)
 
 
-def search_code(root: Path, pattern: str, path: str = ".", max_results: int = 50) -> list[dict]:
+def search_code(
+    root: Path, pattern: str, path: str = ".", max_results: int = 50, force_include: set[str] = frozenset()
+) -> list[dict]:
     """Search for pattern across text files in root/path, capped at max_results."""
     root_path = root.resolve()
     try:
@@ -151,7 +153,7 @@ def search_code(root: Path, pattern: str, path: str = ".", max_results: int = 50
         except ValueError:
             continue
 
-        if is_sensitive_file(rel_str):
+        if is_sensitive_file(rel_str) and rel_str not in force_include and file_path.name not in force_include:
             continue
 
         try:

@@ -51,3 +51,48 @@ def test_high_entropy_token_redaction():
     text = "User token is 9xK#2mP$7vL!4qZ&1wY*5nJ."
     redacted = redact_secrets(text)
     assert "9xK#2mP$7vL!4qZ&1wY*5nJ" not in redacted
+
+
+def test_path_aware_entropy_preserves_filesystem_paths():
+    path_text = "Icon=/home/ultron/.local/share/Antigravity/icon.png"
+    redacted = redact_secrets(path_text)
+    assert redacted == path_text
+
+
+def test_path_with_embedded_secret_redacts_secret_pattern():
+    secret_line = "Authorization: Bearer sk-proj-1234567890123456789012345678901234567890"
+    redacted = redact_secrets(secret_line)
+    assert "sk-proj" not in redacted
+    assert "[REDACTED" in redacted
+
+
+def test_configure_redaction_threshold_override():
+    from eva.security.redaction import configure_redaction
+
+    token_text = "Key is 9xK#2mP$7vL!4qZ&1wY*5nJ"
+    try:
+        configure_redaction(entropy_threshold=8.0, ignore_patterns=[])
+        res = redact_secrets(token_text)
+        assert "9xK#2mP$7vL!4qZ&1wY*5nJ" in res
+    finally:
+        configure_redaction(entropy_threshold=3.5, ignore_patterns=[])
+
+
+def test_configure_redaction_ignore_patterns():
+    from eva.security.redaction import configure_redaction
+
+    token_text = "User identifier is ultron_custom_token_here123456"
+    try:
+        configure_redaction(entropy_threshold=2.0, ignore_patterns=[r"^ultron.*"])
+        res = redact_secrets(token_text)
+        assert "ultron_custom_token_here123456" in res
+    finally:
+        configure_redaction(entropy_threshold=3.5, ignore_patterns=[])
+
+
+def test_redact_secrets_without_configure_call_uses_default_behavior():
+    # Calling redact_secrets with a typical high-entropy token redacts by default
+    text = "Secret token: 9xK#2mP$7vL!4qZ&1wY*5nJ"
+    redacted = redact_secrets(text)
+    assert "9xK#2mP$7vL!4qZ&1wY*5nJ" not in redacted
+    assert "[REDACTED_HIGH_ENTROPY]" in redacted

@@ -41,6 +41,12 @@ class GeneralConfig(BaseModel):
     telemetry_enabled: bool = False
     telemetry_export_endpoint: str | None = None
     tiktoken_encoding_path: str | None = None  # EVA_TIKTOKEN_ENCODING_PATH
+    redaction_entropy_threshold: float = 3.5
+    redaction_ignore_patterns: list[str] = Field(default_factory=list)
+    extra_ignored_dirs: list[str] = Field(default_factory=list)
+    unignore_dirs: list[str] = Field(default_factory=list)
+    sensitive_file_allowlist: list[str] = Field(default_factory=list)
+    context_token_limit: int | None = None
 
 
 class AppConfig(BaseModel):

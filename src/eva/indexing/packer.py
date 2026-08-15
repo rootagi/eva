@@ -44,8 +44,10 @@ class _PackCandidate:
         return f"\n\n--- {self.relative_path} ---\n{self.text}"
 
 
-def _matches_sensitive_denylist(relative_path: str) -> bool:
-    return is_sensitive_file(relative_path)
+def _matches_sensitive_denylist(relative_path: str, force_include: set[str] = frozenset()) -> bool:
+    if not is_sensitive_file(relative_path):
+        return False
+    return relative_path not in force_include and Path(relative_path).name not in force_include
 
 
 def _module_name(relative_path: str) -> str | None:
@@ -125,7 +127,12 @@ def _candidate_sort_key(candidate: _PackCandidate) -> tuple[int, int, int, str]:
     )
 
 
-def pack_repository(root: Path, max_tokens: int, extra_ignore_patterns: list[str] | None = None) -> PackResult:
+def pack_repository(
+    root: Path,
+    max_tokens: int,
+    extra_ignore_patterns: list[str] | None = None,
+    force_include: set[str] = frozenset(),
+) -> PackResult:
     """Pack eligible repository files into a token-bounded plain-text context.
 
     The directory tree is always placed before file sections. File contents use
@@ -158,7 +165,7 @@ def pack_repository(root: Path, max_tokens: int, extra_ignore_patterns: list[str
         if extra_ignore_spec and extra_ignore_spec.match_file(relative_path):
             excluded_files.append((relative_path, "extra_ignored"))
             continue
-        if _matches_sensitive_denylist(relative_path):
+        if _matches_sensitive_denylist(relative_path, force_include=force_include):
             excluded_files.append((relative_path, "denylisted"))
             continue
 

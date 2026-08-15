@@ -1,9 +1,9 @@
 [project]
 name = "eva-cli"
-version = "4.2.1"
+version = "4.3.1"
 
 
-description = "Command Line Intelligence"
+description = "AI-powered terminal assistant focused on security, speed, and cross-platform workflows."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

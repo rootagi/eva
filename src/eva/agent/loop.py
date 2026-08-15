@@ -89,18 +89,20 @@ EXPLORATION_TOOLS = [
 ]
 
 
-def _execute_tool_call(call: ToolCall, root: Path) -> tuple[str, bool, str | None]:
+def _execute_tool_call(
+    call: ToolCall, root: Path, force_include: set[str] = frozenset()
+) -> tuple[str, bool, str | None]:
     name = call.name
     args = call.arguments or {}
 
     if name == "list_directory":
         path_arg = args.get("path", ".")
-        entries = list_directory(root, path=path_arg)
+        entries = list_directory(root, path=path_arg, force_include=force_include)
         return json.dumps(entries, indent=2), False, None
 
     elif name == "read_file":
         path_arg = args.get("path", "")
-        res: ToolResult = read_file(root, path=path_arg)
+        res: ToolResult = read_file(root, path=path_arg, force_include=force_include)
         if res.success:
             return res.content or "", True, path_arg
         else:
@@ -109,7 +111,7 @@ def _execute_tool_call(call: ToolCall, root: Path) -> tuple[str, bool, str | Non
     elif name == "search_code":
         pattern = args.get("pattern", "")
         path_arg = args.get("path", ".")
-        hits = search_code(root, pattern=pattern, path=path_arg)
+        hits = search_code(root, pattern=pattern, path=path_arg, force_include=force_include)
         return json.dumps(hits, indent=2), False, None
 
     else:
@@ -125,6 +127,7 @@ def run_investigation(
     on_stream_text: Callable[[str], None] | None = None,
     on_tool_start: Callable[[str, dict], None] | None = None,
     provider_override: Provider | None = None,
+    force_include: set[str] = frozenset(),
 ) -> InvestigationResult:
     """Run an agentic multi-turn repository investigation loop."""
     provider = provider_override or get_provider(provider_name)
@@ -229,7 +232,7 @@ def run_investigation(
             if on_tool_start:
                 on_tool_start(tc.name, tc.arguments)
 
-            res_str, is_read, path_read = _execute_tool_call(tc, root)
+            res_str, is_read, path_read = _execute_tool_call(tc, root, force_include=force_include)
             if is_read and path_read:
                 files_read_set.add(path_read)
 

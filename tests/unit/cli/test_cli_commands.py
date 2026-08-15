@@ -1,4 +1,5 @@
 from importlib import import_module
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
@@ -206,3 +207,72 @@ def test_cli_cache_clear_command():
         assert res.exit_code == 0
         assert "Cache cleared." in res.output
         mock_clear.assert_called_once()
+
+
+def test_cli_config_redaction_commands(tmp_path: Path):
+    fake_config = app_module.load_config()
+    with patch.object(app_module, "load_config", return_value=fake_config), patch.object(app_module, "save_config"):
+        # set-redaction-threshold
+        res_err = runner.invoke(app, ["config", "set-redaction-threshold", "9.5"])
+        assert res_err.exit_code == 1
+
+        res_ok = runner.invoke(app, ["config", "set-redaction-threshold", "4.2"])
+        assert res_ok.exit_code == 0
+        assert fake_config.general.redaction_entropy_threshold == 4.2
+
+        # allow-redaction-pattern
+        res_pat = runner.invoke(app, ["config", "allow-redaction-pattern", r"^test_.*"])
+        assert res_pat.exit_code == 0
+        assert r"^test_.*" in fake_config.general.redaction_ignore_patterns
+
+        # disallow-redaction-pattern
+        res_dis = runner.invoke(app, ["config", "disallow-redaction-pattern", r"^test_.*"])
+        assert res_dis.exit_code == 0
+        assert r"^test_.*" not in fake_config.general.redaction_ignore_patterns
+
+
+def test_cli_config_ignored_dirs_commands():
+    fake_config = app_module.load_config()
+    with patch.object(app_module, "load_config", return_value=fake_config), patch.object(app_module, "save_config"):
+        # ignore-dir
+        res_ign = runner.invoke(app, ["config", "ignore-dir", "custom_build"])
+        assert res_ign.exit_code == 0
+        assert "custom_build" in fake_config.general.extra_ignored_dirs
+
+        # unignore-dir
+        res_unign = runner.invoke(app, ["config", "unignore-dir", "custom_build"])
+        assert res_unign.exit_code == 0
+        assert "custom_build" in fake_config.general.unignore_dirs
+        assert "custom_build" not in fake_config.general.extra_ignored_dirs
+
+
+def test_cli_config_sensitive_files_commands():
+    fake_config = app_module.load_config()
+    with patch.object(app_module, "load_config", return_value=fake_config), patch.object(app_module, "save_config"):
+        # allow-sensitive-file
+        res_allow = runner.invoke(app, ["config", "allow-sensitive-file", "*.example.env"])
+        assert res_allow.exit_code == 0
+        assert "*.example.env" in fake_config.general.sensitive_file_allowlist
+
+        # disallow-sensitive-file
+        res_disallow = runner.invoke(app, ["config", "disallow-sensitive-file", "*.example.env"])
+        assert res_disallow.exit_code == 0
+        assert "*.example.env" not in fake_config.general.sensitive_file_allowlist
+
+
+def test_cli_context_token_limit_override(tmp_path: Path):
+    f = tmp_path / "large.txt"
+    f.write_text("token " * 2000, encoding="utf-8")
+
+    fake_config = app_module.load_config()
+    fake_config.general.context_token_limit = 50
+
+    with (
+        patch.object(app_module, "load_config", return_value=fake_config),
+        patch.object(app_module, "dispatch", return_value=iter(["OK"])) as mock_dispatch,
+    ):
+        res = runner.invoke(app, ["ask", "Summarize", "-f", str(f)])
+        assert res.exit_code == 0
+        mock_dispatch.assert_called_once()
+        passed_context = mock_dispatch.call_args[0][2]
+        assert "[Context Trimmed]" in passed_context

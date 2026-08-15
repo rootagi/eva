@@ -1,5 +1,6 @@
 import importlib.metadata
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -40,6 +41,8 @@ from eva.providers import _resolve_provider_name, dispatch, get_context_budget, 
 from eva.replay import display_replay_session, list_replay_sessions, record_replay_event
 from eva.security import run_sandboxed
 from eva.security.audit import append_investigation_audit
+from eva.security.redaction import configure_redaction
+from eva.security.sensitive_files import configure_sensitive_file_allowlist
 from eva.security.work_safety import (
     CommandExtractionError,
     UnsafeCommandError,
@@ -50,11 +53,14 @@ from eva.security.work_safety import (
 )
 from eva.telemetry.diagnostics import setup_logging
 from eva.ui.formatter import is_ai_error, print_error, print_info, print_markdown, print_success
+from eva.ui.output import emit_result
 from eva.ui.streaming import stream_response
 from eva.workflows.budget import load_budget, normalize_usage_stats, remaining_budget
 from eva.workflows.chat_session import run_chat_session
 from eva.workflows.engine import list_workflows, load_workflow, run_workflow
 from eva.workspace.git_ops import apply_unified_diff, extract_unified_diff, run_git
+from eva.workspace.gitignore import configure_ignored_dirs
+from eva.workspace.project_context import load_project_context
 from eva.workspace.session import (
     add_bookmark,
     add_note,
@@ -75,12 +81,14 @@ budget_app = typer.Typer(help="Inspect rate limits and token budget usage.")
 workflow_app = typer.Typer(help="Run and manage declarative multi-step workflows.")
 workspace_app = typer.Typer(help="Manage named session workspaces, notes, and bookmarks.")
 cache_app = typer.Typer(help="Manage response cache.")
+context_app = typer.Typer(help="Manage project memory and context.")
 
 app.add_typer(config_app, name="config")
 app.add_typer(budget_app, name="budget")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(workspace_app, name="workspace")
 app.add_typer(cache_app, name="cache")
+app.add_typer(context_app, name="context")
 
 from eva.plugins import load_plugins
 
@@ -126,6 +134,16 @@ def main(
     ),
 ):
     setup_logging(verbose=verbose)
+    config = load_config()
+    configure_redaction(
+        entropy_threshold=config.general.redaction_entropy_threshold,
+        ignore_patterns=config.general.redaction_ignore_patterns,
+    )
+    configure_ignored_dirs(
+        extra=config.general.extra_ignored_dirs,
+        unignore=config.general.unignore_dirs,
+    )
+    configure_sensitive_file_allowlist(config.general.sensitive_file_allowlist)
 
 
 def _read_context_file(path: Path, header: str = "") -> str:
@@ -156,10 +174,23 @@ def ask(
     ),
     provider: str | None = typer.Option(None, "--provider", "-p", help="Pin to a specific provider"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the response cache"),
+    output_format: str = typer.Option(
+        "text", "--format", help="Output format: 'text' (default, rendered markdown) or 'json'"
+    ),
+    no_project_context: bool = typer.Option(
+        False, "--no-project-context", help="Skip auto-loading .eva/context.md for this run"
+    ),
+    force_include: list[Path] = typer.Option(
+        None, "--force-include", help="Force inclusion of specific denylisted files for this repo packing run"
+    ),
 ):
     """Ask a question, optionally including local file context or repo-wide packed context."""
+    if output_format not in ("text", "json"):
+        print_error(f"Invalid --format '{output_format}'. Use 'text' or 'json'.")
+        raise typer.Exit(1)
+
     config = load_config()
-    context = ""
+    context = "" if no_project_context else load_project_context(Path.cwd())
     pack_res = None
     provider_name = _resolve_provider_name(config, provider)
 
@@ -168,7 +199,20 @@ def ask(
             print_error(f"Not a directory: {repo}")
             raise typer.Exit(1)
         max_tokens = get_context_budget(provider_name, config)
-        pack_res = pack_repository(repo, max_tokens=max_tokens)
+        force_include_set = (
+            {p.as_posix() for p in force_include} | {p.name for p in force_include} if force_include else frozenset()
+        )
+        if force_include:
+            for fi in force_include:
+                append_command_audit(
+                    {
+                        "action": "sensitive_file_override",
+                        "command": "ask",
+                        "path": str(fi),
+                        "query": " ".join(query),
+                    }
+                )
+        pack_res = pack_repository(repo, max_tokens=max_tokens, force_include=force_include_set)
 
         from rich.table import Table
 
@@ -218,7 +262,8 @@ def ask(
             context += f"\n=== Directory tree: {path} ===\n{tree_text}\n"
 
     if context and not repo:
-        context = trim_context(context, max_tokens=4000)
+        max_tokens = config.general.context_token_limit or get_context_budget(provider_name, config)
+        context = trim_context(context, max_tokens=max_tokens)
 
     query_str = " ".join(query)
     stream = dispatch(ASK_SYSTEM_PROMPT, query_str, context, config, pinned_provider=provider, use_cache=not no_cache)
@@ -236,18 +281,24 @@ def ask(
             }
         )
 
-    if is_ai_error(result):
-        print_error(result.strip())
+    had_error = emit_result(result, output_format, meta={"provider": provider_name})
+    if had_error:
         raise typer.Exit(1)
-    print_markdown(result)
 
 
 @app.command()
 def explain(
     target: str = typer.Argument(None, help="File path, concept, or pipe input to explain"),
     provider: str | None = typer.Option(None, "--provider", "-p", help="Pin to a specific provider"),
+    output_format: str = typer.Option(
+        "text", "--format", help="Output format: 'text' (default, rendered markdown) or 'json'"
+    ),
 ):
     """Explain a file, error log, or piped stdout."""
+    if output_format not in ("text", "json"):
+        print_error(f"Invalid --format '{output_format}'. Use 'text' or 'json'.")
+        raise typer.Exit(1)
+
     config = load_config()
     context = ""
     query = "Explain this content."
@@ -282,12 +333,12 @@ def explain(
         context = f"\n=== Project Stack ===\n{stack.to_summary_string()}\n\n=== Dependency Graph ===\n{dep_graph.to_summary_string()}\n"
         query = "Explain the project structure, stack, and architecture of this repository."
 
+    provider_name = _resolve_provider_name(config, provider)
     stream = dispatch(EXPLAIN_SYSTEM_PROMPT, query, context, config, pinned_provider=provider)
     result = stream_response(stream)
-    if is_ai_error(result):
-        print_error(result.strip())
+    had_error = emit_result(result, output_format, meta={"provider": provider_name})
+    if had_error:
         raise typer.Exit(1)
-    print_markdown(result)
 
 
 @app.command()
@@ -310,6 +361,11 @@ def investigate(
         "--yes",
         "-y",
         help="Skip upfront confirmation prompt",
+    ),
+    force_include: list[Path] = typer.Option(
+        None,
+        "--force-include",
+        help="Force inclusion of specific denylisted files for this run",
     ),
 ):
     """Agentic, multi-turn, query-driven repo exploration."""
@@ -349,6 +405,20 @@ def investigate(
             pat = args.get("pattern", "")
             err_console.print(f"[dim]Searching code for '{pat}'...[/dim]")
 
+    force_include_set = (
+        {p.as_posix() for p in force_include} | {p.name for p in force_include} if force_include else frozenset()
+    )
+    if force_include:
+        for fi in force_include:
+            append_command_audit(
+                {
+                    "action": "sensitive_file_override",
+                    "command": "investigate",
+                    "path": str(fi),
+                    "query": query,
+                }
+            )
+
     result = run_investigation(
         query=query,
         root=target_root,
@@ -356,6 +426,7 @@ def investigate(
         provider_name=resolved_provider,
         max_turns=max_turns,
         on_tool_start=on_tool_start,
+        force_include=force_include_set,
     )
 
     append_investigation_audit(
@@ -429,6 +500,9 @@ def work(
     allow_shell_features: bool = typer.Option(
         False, "--allow-shell-features", help="Allow shell features (pipes, redirects) via shell execution"
     ),
+    no_project_context: bool = typer.Option(
+        False, "--no-project-context", help="Skip auto-loading .eva/context.md for this run"
+    ),
 ):
     """Execute a command generated from natural language."""
     config = load_config()
@@ -437,7 +511,8 @@ def work(
     from rich.live import Live
     from rich.spinner import Spinner
 
-    stream = dispatch(WORK_SYSTEM_PROMPT, query_str, "", config, pinned_provider=provider)
+    context = "" if no_project_context else load_project_context(Path.cwd())
+    stream = dispatch(WORK_SYSTEM_PROMPT, query_str, context, config, pinned_provider=provider)
 
     model_output = ""
     spinner = Spinner("dots", text="Generating command...")
@@ -631,8 +706,10 @@ def commit(
         print_error("No staged changes found. Use 'git add' first.")
         raise typer.Exit(1)
 
-    trimmed_diff = trim_context(diff_text, max_tokens=4000)
     config = load_config()
+    provider_name = _resolve_provider_name(config, provider)
+    max_tokens = config.general.context_token_limit or get_context_budget(provider_name, config)
+    trimmed_diff = trim_context(diff_text, max_tokens=max_tokens)
     stream = dispatch(COMMIT_SYSTEM_PROMPT, "Generate commit message", trimmed_diff, config, pinned_provider=provider)
     result = stream_response(stream)
     if is_ai_error(result):
@@ -658,8 +735,10 @@ def changes(
         print_error("No changes found.")
         raise typer.Exit(1)
 
-    trimmed_diff = trim_context(diff_text, max_tokens=4000)
     config = load_config()
+    provider_name = _resolve_provider_name(config, provider)
+    max_tokens = config.general.context_token_limit or get_context_budget(provider_name, config)
+    trimmed_diff = trim_context(diff_text, max_tokens=max_tokens)
     stream = dispatch(
         CHANGES_SYSTEM_PROMPT,
         "Explain the changes in this git diff.",
@@ -895,6 +974,144 @@ def import_allowlist_cmd(
     print_success(f"Imported {added_count} new allowed command prefix(es) from '{path}'.")
 
 
+@config_app.command("set-redaction-threshold")
+def set_redaction_threshold_cmd(
+    threshold: float = typer.Argument(..., help="Entropy threshold (0 < value <= 8.0)"),
+):
+    """Set the process-wide Shannon entropy threshold for secret redaction."""
+    if threshold <= 0 or threshold > 8.0:
+        print_error("Entropy threshold must be between 0.0 and 8.0 (exclusive 0, inclusive 8).")
+        raise typer.Exit(1)
+    config = load_config()
+    config.general.redaction_entropy_threshold = threshold
+    save_config(config)
+    print_success(f"Redaction entropy threshold set to {threshold}.")
+
+
+@config_app.command("allow-redaction-pattern")
+def allow_redaction_pattern_cmd(
+    pattern: str = typer.Argument(..., help="Regex pattern of tokens to exempt from entropy redaction"),
+):
+    """Add a regex pattern to exempt matching tokens from entropy redaction."""
+    p = pattern.strip()
+    if not p:
+        print_error("Pattern cannot be empty.")
+        raise typer.Exit(1)
+    try:
+        re.compile(p)
+    except re.error as exc:
+        print_error(f"Invalid regex pattern: {exc}")
+        raise typer.Exit(1) from exc
+
+    config = load_config()
+    if p not in config.general.redaction_ignore_patterns:
+        config.general.redaction_ignore_patterns.append(p)
+        save_config(config)
+        print_success(f"Added '{p}' to redaction ignore patterns.")
+    else:
+        print_info(f"Pattern '{p}' is already in the ignore list.")
+
+
+@config_app.command("disallow-redaction-pattern")
+def disallow_redaction_pattern_cmd(
+    pattern: str = typer.Argument(..., help="Regex pattern to remove from redaction ignore list"),
+):
+    """Remove a regex pattern from redaction ignore list."""
+    p = pattern.strip()
+    config = load_config()
+    if p in config.general.redaction_ignore_patterns:
+        config.general.redaction_ignore_patterns.remove(p)
+        save_config(config)
+        print_success(f"Removed '{p}' from redaction ignore patterns.")
+    else:
+        print_error(f"Pattern '{p}' is not in the ignore list.")
+        raise typer.Exit(1)
+
+
+@config_app.command("ignore-dir")
+def ignore_dir_cmd(
+    name: str = typer.Argument(..., help="Directory name to add to always-ignored directories"),
+):
+    """Add a directory name to the process-wide ignored directories set."""
+    d = name.strip()
+    if not d:
+        print_error("Directory name cannot be empty.")
+        raise typer.Exit(1)
+    config = load_config()
+    if d in config.general.unignore_dirs:
+        config.general.unignore_dirs.remove(d)
+    if d not in config.general.extra_ignored_dirs:
+        config.general.extra_ignored_dirs.append(d)
+        save_config(config)
+        print_success(f"Added '{d}' to extra ignored directories.")
+    else:
+        print_info(f"Directory '{d}' is already in extra ignored directories.")
+
+
+@config_app.command("unignore-dir")
+def unignore_dir_cmd(
+    name: str = typer.Argument(..., help="Directory name to remove from always-ignored directories"),
+):
+    """Unignore a directory name so it is scanned and indexed."""
+    d = name.strip()
+    if not d:
+        print_error("Directory name cannot be empty.")
+        raise typer.Exit(1)
+    config = load_config()
+    if d in config.general.extra_ignored_dirs:
+        config.general.extra_ignored_dirs.remove(d)
+    if d not in config.general.unignore_dirs:
+        config.general.unignore_dirs.append(d)
+        save_config(config)
+        print_success(f"Added '{d}' to unignored directories.")
+    else:
+        print_info(f"Directory '{d}' is already in unignored directories.")
+
+
+@config_app.command("allow-sensitive-file")
+def allow_sensitive_file_cmd(
+    pattern: str = typer.Argument(..., help="Filename glob pattern to allowlist (e.g. *.example.env)"),
+):
+    """Add a glob pattern to the sensitive-file allowlist."""
+    p = pattern.strip()
+    if not p:
+        print_error("Pattern cannot be empty.")
+        raise typer.Exit(1)
+    config = load_config()
+    if p not in config.general.sensitive_file_allowlist:
+        config.general.sensitive_file_allowlist.append(p)
+        save_config(config)
+        print_success(f"Added '{p}' to sensitive file allowlist.")
+    else:
+        print_info(f"Pattern '{p}' is already in the sensitive file allowlist.")
+
+
+@config_app.command("disallow-sensitive-file")
+def disallow_sensitive_file_cmd(
+    pattern: str = typer.Argument(..., help="Filename glob pattern to remove from allowlist"),
+):
+    """Remove a glob pattern from the sensitive-file allowlist."""
+    p = pattern.strip()
+    config = load_config()
+    if p in config.general.sensitive_file_allowlist:
+        config.general.sensitive_file_allowlist.remove(p)
+        save_config(config)
+        print_success(f"Removed '{p}' from sensitive file allowlist.")
+    else:
+        print_error(f"Pattern '{p}' is not in the sensitive file allowlist.")
+        raise typer.Exit(1)
+
+
+@context_app.command("show")
+def show_context():
+    """Display project context from .eva/context.md if present."""
+    ctx = load_project_context(Path.cwd())
+    if ctx:
+        console.print(ctx.strip())
+    else:
+        print_info("No project context found (.eva/context.md is missing or empty).")
+
+
 @config_app.command("show")
 def show_config():
     """Display current configuration, default provider, and key statuses."""
@@ -916,6 +1133,25 @@ def show_config():
         else "Disabled (empty)"
     )
     table.add_row("Allowed Command Prefixes", allowlist_str)
+    table.add_row("Redaction Entropy Threshold", str(config.general.redaction_entropy_threshold))
+    redaction_ignore_str = (
+        ", ".join(config.general.redaction_ignore_patterns) if config.general.redaction_ignore_patterns else "None"
+    )
+    table.add_row("Redaction Ignore Patterns", redaction_ignore_str)
+    extra_ignored_str = ", ".join(config.general.extra_ignored_dirs) if config.general.extra_ignored_dirs else "None"
+    table.add_row("Extra Ignored Dirs", extra_ignored_str)
+    unignore_str = ", ".join(config.general.unignore_dirs) if config.general.unignore_dirs else "None"
+    table.add_row("Unignore Dirs", unignore_str)
+    sensitive_allow_str = (
+        ", ".join(config.general.sensitive_file_allowlist) if config.general.sensitive_file_allowlist else "None"
+    )
+    table.add_row("Sensitive File Allowlist", sensitive_allow_str)
+    context_limit_str = (
+        str(config.general.context_token_limit)
+        if config.general.context_token_limit is not None
+        else "Provider Default"
+    )
+    table.add_row("Context Token Limit", context_limit_str)
 
     console.print(table)
     console.print()

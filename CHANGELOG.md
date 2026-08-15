@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [4.3.1] - 2026-08-15
+
+### Added
+- **Path-Aware Secret Redaction & Configurable Entropy Threshold (`src/eva/security/redaction.py`, `src/eva/cli/app.py`):**
+  - Updated `replace_high_entropy()` to split tokens on `/` and score individual path segments separately, eliminating false-positive redactions on Unix/Windows filesystem paths (e.g. `~/.local/share/.../icon.png`).
+  - Added configurable Shannon entropy threshold via `GeneralConfig.redaction_entropy_threshold` (default `3.5`) and CLI command `eva config set-redaction-threshold <val>`.
+  - Added configurable regex exemption patterns via `GeneralConfig.redaction_ignore_patterns`, `eva config allow-redaction-pattern <regex>`, and `eva config disallow-redaction-pattern <regex>`.
+- **Configurable Ignored Directories (`src/eva/workspace/gitignore.py`, `src/eva/cli/app.py`):**
+  - Dynamic ignored directories collection `_effective_ignored_dirs` with `.eva/` excluded by default from indexing and repo packing.
+  - Added `GeneralConfig.extra_ignored_dirs` and `GeneralConfig.unignore_dirs` managed via `eva config ignore-dir <name>` and `eva config unignore-dir <name>`.
+- **Sensitive File Allowlist & `--force-include` Overrides (`src/eva/security/sensitive_files.py`, `src/eva/indexing/packer.py`, `src/eva/agent/tools.py`, `src/eva/cli/app.py`):**
+  - Added `GeneralConfig.sensitive_file_allowlist` managed via `eva config allow-sensitive-file <pattern>` and `eva config disallow-sensitive-file <pattern>`.
+  - Added `--force-include <pattern>` flag to `eva investigate` and `eva ask --repo` for explicit, user-authorized inspection of denylisted files.
+  - Cryptographic hash-chained audit logging with action `sensitive_file_override` for all force-included accesses.
+- **Configurable Context Token Limit (`src/eva/config/config.py`, `src/eva/cli/app.py`):**
+  - Added `GeneralConfig.context_token_limit` override allowing users to cap LLM context token consumption process-wide across `ask`, `commit-message`, and `changes`.
+- **Machine-Readable Structured Output `--format json` (`src/eva/ui/output.py`, `src/eva/cli/app.py`):**
+  - Added `--format json|text` option to `eva ask` and `eva explain`, emitting deterministic JSON objects (`{"content": ..., "is_error": bool, "provider": ...}`) suitable for scripting and CI integration.
+- **Project Memory Support `.eva/context.md` (`src/eva/workspace/project_context.py`, `src/eva/cli/app.py`):**
+  - Added automated project memory loader injecting repository-level instructions in `.eva/context.md` into `eva ask` and `eva work` prompts.
+  - Added `eva context show` command to display active project memory.
+  - Added `--no-project-context` flag to bypass project memory for one-shot runs.
+
 ## [4.2.1] - 2026-08-12
+
 
 ### Security
 - **Replay session data encrypted at rest (`src/eva/replay/`):**

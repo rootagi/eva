@@ -21,16 +21,25 @@ Eva automatically sanitizes text to redact sensitive credentials **before** data
    - **Generic Secret Assignments**: `api_key`, `secret`, `password`, `auth_token`, `access_token`
    - **PEM Private Key Blocks**: `-----BEGIN [RSA|EC|DSA|OPENSSH] PRIVATE KEY-----`
 
-2. **Shannon Entropy Analysis**:
-   - Evaluates randomness for all strings $\ge 16$ characters using Shannon entropy:
+2. **Shannon Entropy Analysis & Path-Aware Tokenization**:
+   - Evaluates randomness for string tokens $\ge 16$ characters using Shannon entropy:
      $$H(S) = -\sum_{i} p(x_i) \log_2 p(x_i)$$
-   - Tokens exceeding the entropy threshold ($H(S) > 3.5$ bits/char) are automatically redacted as `[REDACTED_HIGH_ENTROPY]`.
+   - Paths are tokenized by path separators (`/`) and scored per segment to prevent false positive redactions of structured paths.
+   - Tokens exceeding the configurable entropy threshold ($H(S) > 3.5$ bits/char by default) are automatically redacted as `[REDACTED_HIGH_ENTROPY]`.
+   - Entropy threshold can be customized via `eva config set-redaction-threshold <val>`.
+   - Specific regex patterns can be exempted from entropy redaction via `eva config allow-redaction-pattern <regex>` and `eva config disallow-redaction-pattern <regex>`.
+
+3. **Sensitive File Protection & Overrides**:
+   - High-risk credential and configuration files (`.env*`, `*.pem`, `*.key`, `credentials.*`, `secrets.*`, etc.) are blocked by default from indexing, repository packing, and agent file exploration.
+   - Persistent allowlist patterns can be configured via `eva config allow-sensitive-file <pattern>` and `eva config disallow-sensitive-file <pattern>`.
+   - Per-command overrides can be passed via `--force-include <pattern>` in `eva investigate` and `eva ask --repo`. Every force-included sensitive file access is recorded in the cryptographic audit log as a `sensitive_file_override` event.
 
 ---
 
 ## 2. Hash-Chained Audit Log
 
-All executed, blocked, or declined commands generated via `eva work` or `eva workflow` are recorded in an append-only, tamper-evident audit log at `~/.config/eva/command_audit.jsonl`.
+All executed, blocked, or declined commands generated via `eva work` or `eva workflow`, as well as sensitive file overrides (`--force-include`), are recorded in an append-only, tamper-evident audit log at `~/.config/eva/command_audit.jsonl`.
+
 
 ### Cryptographic Tamper Detection
 

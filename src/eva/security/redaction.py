@@ -50,14 +50,37 @@ def shannon_entropy(s: str) -> float:
     return entropy
 
 
-def redact_secrets(text: str, entropy_threshold: float = 3.5) -> str:
+_current_entropy_threshold: float = 3.5
+_current_ignore_patterns: list[re.Pattern] = []
+
+
+def configure_redaction(entropy_threshold: float, ignore_patterns: list[str]) -> None:
+    """Set process-wide redaction tuning from AppConfig. Call once at startup."""
+    global _current_entropy_threshold, _current_ignore_patterns
+    _current_entropy_threshold = entropy_threshold
+    _current_ignore_patterns = [re.compile(p) for p in ignore_patterns]
+
+
+def _is_ignored_token(token: str) -> bool:
+    return any(p.search(token) for p in _current_ignore_patterns)
+
+
+KNOWN_SAFE_TOKENS = frozenset({"sensitive_file_override"})
+
+
+def redact_secrets(text: str, entropy_threshold: float | None = None) -> str:
     """Redact secrets, API keys, tokens, private keys, and high-entropy strings from text.
 
     Applied BEFORE writing data to disk (logs, replay, cache, memory) and BEFORE provider calls.
+
+    entropy_threshold overrides the process-wide configured value for this call
+    only; defaults to whatever configure_redaction() set (or 3.5 if never called,
+    preserving current behavior for direct/test callers).
     """
     if not text:
         return text
 
+    threshold = entropy_threshold if entropy_threshold is not None else _current_entropy_threshold
     redacted = text
 
     # Step 1: Regex pattern redaction
@@ -67,11 +90,27 @@ def redact_secrets(text: str, entropy_threshold: float = 3.5) -> str:
     # Step 2: High-entropy string redaction
     def replace_high_entropy(match: re.Match) -> str:
         token = match.group(0)
-        # Skip tokens that look like already-redacted markers or standard web URLs
-        if token.startswith(("[REDACTED", "http://", "https://")):
+        # Skip tokens that look like already-redacted markers, standard web URLs, env keys, or known safe tokens
+        if (
+            "[REDACTED" in token
+            or token.startswith(("http://", "https://", "EVA_", "REDACTED_"))
+            or token in KNOWN_SAFE_TOKENS
+            or _is_ignored_token(token)
+        ):
             return token
-        # Skip standard UUIDs or hex strings with lower entropy
-        if shannon_entropy(token) > entropy_threshold:
+
+        if "/" in token:
+            segments = token.split("/")
+            return "/".join(
+                "[REDACTED_HIGH_ENTROPY]"
+                if len(seg) >= 16
+                and not _is_ignored_token(seg)
+                and seg not in KNOWN_SAFE_TOKENS
+                and shannon_entropy(seg) > threshold
+                else seg
+                for seg in segments
+            )
+        if not _is_ignored_token(token) and token not in KNOWN_SAFE_TOKENS and shannon_entropy(token) > threshold:
             return "[REDACTED_HIGH_ENTROPY]"
         return token
 
