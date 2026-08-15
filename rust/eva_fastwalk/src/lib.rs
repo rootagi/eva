@@ -134,8 +134,9 @@ fn fast_generate_tree(root: &str) -> PyResult<String> {
 }
 
 #[pymodule]
-fn eva_fastwalk(_py: Python, m: &PyModule) -> PyResult<()> {
+fn eva_fastwalk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fast_find_files, m)?)?;
     m.add_function(wrap_pyfunction!(fast_generate_tree, m)?)?;
     Ok(())
 }
+
