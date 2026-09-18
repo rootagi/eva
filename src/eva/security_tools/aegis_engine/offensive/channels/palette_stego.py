@@ -30,10 +30,11 @@ canonical sort, and recovers the permutation via ranking.
 
 import numpy as np
 import struct
-import hashlib
 from PIL import Image
 from typing import Tuple
 from math import factorial, log2
+
+from eva.security_tools.aegis_engine.offensive.crypto import derive_context_seed
 
 
 def _lehmer_encode(permutation: list) -> int:
@@ -166,9 +167,7 @@ def embed_palette(image_path: str, output_path: str, payload: bytes,
     
     # Apply password-seeded shuffle to the canonical order
     if password:
-        seed = int.from_bytes(
-            hashlib.sha256(password.encode()).digest()[:4], 'little'
-        )
+        seed = derive_context_seed(password, b"eva-aegis-palette-order-v1") & 0xFFFFFFFF
         rng = np.random.RandomState(seed)
         shuffled = rng.permutation(n_colours).tolist()
         # Re-order canonical: apply shuffle
@@ -257,9 +256,7 @@ def extract_palette(image_path: str, password: str = "") -> bytes:
     
     # Apply the same password shuffle
     if password:
-        seed = int.from_bytes(
-            hashlib.sha256(password.encode()).digest()[:4], 'little'
-        )
+        seed = derive_context_seed(password, b"eva-aegis-palette-order-v1") & 0xFFFFFFFF
         rng = np.random.RandomState(seed)
         shuffled = rng.permutation(n_colours).tolist()
         canonical_order = [canonical_order[shuffled[i]] for i in range(n_colours)]

@@ -314,7 +314,12 @@ def timestomp(target_file, clone_from):
 
 
 import getpass
-from eva.security_tools.aegis_engine.offensive.crypto import prepare_stego_payload, parse_stego_payload
+from eva.security_tools.aegis_engine.offensive.crypto import (
+    decrypt_payload,
+    encrypt_payload,
+    parse_stego_payload,
+    prepare_stego_payload,
+)
 from eva.security_tools.aegis_engine.offensive.algorithms.f5_stego import embed_f5_jpeg, extract_f5_jpeg
 from eva.security_tools.aegis_engine.offensive.algorithms.adaptive import embed_adaptive, extract_adaptive
 from eva.security_tools.aegis_engine.offensive.algorithms.j_uniward import embed_j_uniward, extract_j_uniward
@@ -325,6 +330,18 @@ from eva.security_tools.aegis_engine.offensive.channels.metadata_channel import 
     embed_xmp_channel, extract_xmp_channel
 )
 from eva.security_tools.aegis_engine.offensive.channels.multi_carrier import split_payload_for_carriers, reconstruct_payload_from_shares
+
+ENCRYPTED_SHARE_MAGIC = b"AEGSHARE1"
+
+
+def _protect_share_for_storage(share: bytes, password: str) -> bytes:
+    return ENCRYPTED_SHARE_MAGIC + encrypt_payload(share, password)
+
+
+def _unprotect_share_from_storage(share_blob: bytes, password: str) -> bytes:
+    if not share_blob.startswith(ENCRYPTED_SHARE_MAGIC):
+        return share_blob
+    return decrypt_payload(share_blob[len(ENCRYPTED_SHARE_MAGIC):], password)
 
 @cli.command(help="Embed a covert payload into an image (Offensive Steganography).")
 @click.argument('carrier_path', type=click.Path(exists=True))
@@ -617,8 +634,9 @@ def split_cmd(payload_path, output_dir, k, n, password=None):
             
         for i, share in enumerate(shares):
             share_path = os.path.join(output_dir, f"share_{i+1}.bin")
+            protected_share = _protect_share_for_storage(share, password)
             with open(share_path, 'wb') as f:
-                f.write(share)
+                f.write(protected_share)
             console.print(f"Share {i+1} saved to {share_path}")
         console.print("[success]Splitting successful.[/success]")
     except Exception as e:
@@ -636,7 +654,7 @@ def reconstruct_cmd(shares, output_path, password=None):
         share_blobs = []
         for s in shares:
             with open(s, 'rb') as f:
-                share_blobs.append(f.read())
+                share_blobs.append(_unprotect_share_from_storage(f.read(), password))
                 
         extracted_payload = reconstruct_payload_from_shares(share_blobs)
         decrypted_data = parse_stego_payload(extracted_payload, password)

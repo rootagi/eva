@@ -12,7 +12,7 @@ Implements the complete F5 algorithm as described by Westfeld (2001):
      is naturally skipped, ensuring embedder and extractor stay synchronised.
 
 Security properties:
-  - The PRNG seed is derived from the encryption password via SHA-256, binding
+  - The PRNG seed is derived from the encryption password via Argon2id, binding
     the coefficient permutation to the same secret used for payload encryption.
   - Matrix encoding minimises the number of coefficient changes, preserving
     the carrier's DCT histogram and resisting chi-square / HCF-COM attacks.
@@ -23,9 +23,10 @@ try:
     import jpegio as jio
 except ImportError:
     jio = None
-import hashlib
 import struct
 from typing import List, Tuple
+
+from eva.security_tools.aegis_engine.offensive.crypto import derive_context_seed
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -33,8 +34,7 @@ from typing import List, Tuple
 
 def _derive_prng_seed(password: str) -> int:
     """Derive a deterministic 64-bit PRNG seed from the password."""
-    digest = hashlib.sha256(password.encode("utf-8")).digest()
-    return int.from_bytes(digest[:8], "little")
+    return derive_context_seed(password, b"eva-aegis-f5-prng-v1")
 
 
 def _collect_all_ac_positions(coef_arrays: list) -> List[Tuple[int, int, int, int]]:

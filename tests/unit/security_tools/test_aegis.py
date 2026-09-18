@@ -224,3 +224,32 @@ def test_aegis_in_process_sanitize(tmp_path):
     )
     assert result.return_code == 0
     assert sanitized_path.exists()
+
+
+def test_aegis_split_shares_are_encrypted_at_rest():
+    from eva.security_tools.aegis_engine.main import (
+        ENCRYPTED_SHARE_MAGIC,
+        _protect_share_for_storage,
+        _unprotect_share_from_storage,
+    )
+    from eva.security_tools.aegis_engine.offensive.channels.multi_carrier import (
+        reconstruct_payload_from_shares,
+        split_payload_for_carriers,
+    )
+    from eva.security_tools.aegis_engine.offensive.crypto import parse_stego_payload, prepare_stego_payload
+
+    password = "correct horse battery staple"
+    final_payload = prepare_stego_payload(primary_data=b"secret payload", primary_password=password)
+    shares = split_payload_for_carriers(final_payload, k=2, n=3)
+
+    protected_share = _protect_share_for_storage(shares[0], password)
+    assert protected_share.startswith(ENCRYPTED_SHARE_MAGIC)
+    assert protected_share != shares[0]
+    assert final_payload[:12] not in protected_share
+    assert _unprotect_share_from_storage(protected_share, password) == shares[0]
+    assert _unprotect_share_from_storage(shares[0], password) == shares[0]
+
+    recovered_payload = reconstruct_payload_from_shares(
+        [_unprotect_share_from_storage(protected_share, password), shares[1]]
+    )
+    assert parse_stego_payload(recovered_payload, password) == b"secret payload"

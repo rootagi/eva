@@ -28,9 +28,10 @@ import socket
 import struct
 import time
 import base64
-import hashlib
 import os
 from typing import Optional, List, Tuple
+
+from eva.security_tools.aegis_engine.offensive.crypto import xor_with_password_stream
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -171,12 +172,9 @@ class DNSTunnel:
         -------
         dict with statistics about the transmission.
         """
-        # XOR obfuscation with password-derived key stream
+        # XOR obfuscation with a password-derived key stream
         if password:
-            key = hashlib.sha256(password.encode()).digest()
-            obfuscated = bytes(
-                payload[i] ^ key[i % len(key)] for i in range(len(payload))
-            )
+            obfuscated = xor_with_password_stream(payload, password, b"eva-aegis-dns-channel-v1")
         else:
             obfuscated = payload
         
@@ -332,10 +330,7 @@ class DNSTunnel:
             return None
         
         if password:
-            key = hashlib.sha256(password.encode()).digest()
-            raw_bytes = bytes(
-                raw_bytes[i] ^ key[i % len(key)] for i in range(len(raw_bytes))
-            )
+            raw_bytes = xor_with_password_stream(raw_bytes, password, b"eva-aegis-dns-channel-v1")
         
         return raw_bytes[:payload_len]
 
@@ -407,10 +402,7 @@ class ICMPChannel:
         """
         # XOR obfuscation
         if password:
-            key = hashlib.sha256(password.encode()).digest()
-            obfuscated = bytes(
-                payload[i] ^ key[i % len(key)] for i in range(len(payload))
-            )
+            obfuscated = xor_with_password_stream(payload, password, b"eva-aegis-icmp-channel-v1")
         else:
             obfuscated = payload
         
@@ -535,8 +527,7 @@ class ICMPChannel:
         raw = full_data[4:4 + payload_len]
         
         if password:
-            key = hashlib.sha256(password.encode()).digest()
-            raw = bytes(raw[i] ^ key[i % len(key)] for i in range(len(raw)))
+            raw = xor_with_password_stream(raw, password, b"eva-aegis-icmp-channel-v1")
         
         return raw
 

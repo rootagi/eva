@@ -22,18 +22,18 @@ try:
     import jpegio as jio
 except ImportError:
     jio = None
-import hashlib
 import struct
 from typing import List, Tuple, Optional
 from scipy import ndimage
+
+from eva.security_tools.aegis_engine.offensive.crypto import derive_context_seed
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def _derive_prng_seed(password: str) -> int:
     """Derive a deterministic 64-bit PRNG seed from the password."""
-    digest = hashlib.sha256(password.encode("utf-8")).digest()
-    return int.from_bytes(digest[:8], "little")
+    return derive_context_seed(password, b"eva-aegis-juniward-prng-v1")
 
 
 def _haar_wavelet_cost(spatial: np.ndarray) -> np.ndarray:

@@ -66,6 +66,36 @@ def make_test_pe(file_path: Path, writable_code: bool = True, aslr: bool = False
     return file_path
 
 
+def make_test_elf(file_path: Path, executable_stack: bool = False, pie: bool = True):
+    """Generate a minimal valid 64-bit ELF binary for cross-platform testing."""
+    ident = b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 8
+    e_type = 3 if pie else 2  # ET_DYN (PIE) vs ET_EXEC
+    elf_hdr = struct.pack(
+        "<16sHHIQQQIHHHHHH",
+        ident,
+        e_type,
+        62,  # EM_X86_64
+        1,  # EV_CURRENT
+        0x401000,
+        64,  # phoff
+        0,  # shoff
+        0,  # flags
+        64,  # ehsize
+        56,  # phentsize
+        2,  # phnum
+        64,  # shentsize
+        0,  # shnum
+        0,  # shstrndx
+    )
+    ph1 = struct.pack("<IIQQQQQQ", 1, 5, 0, 0x400000, 0x400000, 0x1000, 0x1000, 0x1000)
+    stack_flags = 7 if executable_stack else 6  # RWX (executable stack) vs RW (non-executable stack)
+    ph2 = struct.pack("<IIQQQQQQ", 0x6474E551, stack_flags, 0, 0, 0, 0, 0, 8)
+    elf_data = elf_hdr + ph1 + ph2
+    elf_data += b"\x00" * (0x1000 - len(elf_data))
+    file_path.write_bytes(elf_data)
+    return file_path
+
+
 # --- PE Analyzer Tests ---
 
 
@@ -117,8 +147,16 @@ def test_pe_analysis_nonexistent_file():
 # --- ELF Analyzer Tests ---
 
 
-def test_elf_analysis_system_binary():
-    meta, findings = analyze_elf("/usr/bin/ls")
+def test_elf_analysis_system_binary(tmp_path):
+    elf_path = Path("/usr/bin/ls")
+    try:
+        is_elf = elf_path.exists() and elf_path.read_bytes()[:4] == b"\x7fELF"
+    except (OSError, PermissionError):
+        is_elf = False
+    if not is_elf:
+        elf_path = make_test_elf(tmp_path / "test.elf")
+
+    meta, findings = analyze_elf(elf_path)
     assert meta["is_valid_elf"] is True
     assert isinstance(findings, list)
     assert "header" in meta
@@ -127,6 +165,14 @@ def test_elf_analysis_system_binary():
     assert "relro" in meta["mitigations"]
     assert "nx" in meta["mitigations"]
     assert "pie" in meta["mitigations"]
+
+
+def test_elf_analysis_executable_stack(tmp_path):
+    elf_file = make_test_elf(tmp_path / "wx.elf", executable_stack=True)
+    meta, findings = analyze_elf(elf_file)
+    assert meta["mitigations"]["nx"] is False
+    rule_ids = {f.rule_id for f in findings}
+    assert "elf.mitigation.no_nx" in rule_ids
 
 
 def test_elf_analysis_corrupted_binary(tmp_path):
@@ -224,14 +270,23 @@ def test_cli_binary_pe_live(tmp_path):
     assert "PE analysis complete" in result.output
 
 
-def test_cli_binary_elf_dry_run():
-    result = runner.invoke(app, ["sec", "binary", "elf", "/usr/bin/ls", "--dry-run"])
+def test_cli_binary_elf_dry_run(tmp_path):
+    elf_file = make_test_elf(tmp_path / "dry_elf.bin")
+    result = runner.invoke(app, ["sec", "binary", "elf", str(elf_file), "--dry-run"])
     assert result.exit_code == 0
     assert "[Dry-Run]" in result.output
 
 
-def test_cli_binary_elf_live():
-    result = runner.invoke(app, ["sec", "binary", "elf", "/usr/bin/ls", "--format", "json"])
+def test_cli_binary_elf_live(tmp_path):
+    elf_path = Path("/usr/bin/ls")
+    try:
+        is_elf = elf_path.exists() and elf_path.read_bytes()[:4] == b"\x7fELF"
+    except (OSError, PermissionError):
+        is_elf = False
+    if not is_elf:
+        elf_path = make_test_elf(tmp_path / "cli_test.elf")
+
+    result = runner.invoke(app, ["sec", "binary", "elf", str(elf_path), "--format", "json"])
     assert result.exit_code == 0
     assert "ELF analysis complete" in result.output
 

@@ -1,6 +1,8 @@
 import os
 import zlib
 import struct
+import hashlib
+import hmac
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from argon2.low_level import hash_secret_raw, Type
@@ -17,6 +19,30 @@ def derive_key(password: str, salt: bytes) -> bytes:
         hash_len=32,
         type=Type.ID
     )
+
+
+def derive_context_key(password: str, context: bytes) -> bytes:
+    """Derive deterministic key material for non-storage uses."""
+    if len(context) < 8:
+        raise ValueError("KDF context must be at least 8 bytes")
+    return derive_key(password, context)
+
+
+def derive_context_seed(password: str, context: bytes) -> int:
+    """Derive a deterministic 64-bit PRNG seed from a password and context."""
+    key = derive_context_key(password, context)
+    return int.from_bytes(key[:8], "little")
+
+
+def xor_with_password_stream(data: bytes, password: str, context: bytes) -> bytes:
+    """Apply a deterministic HMAC-SHA256 stream generated from an Argon2id key."""
+    key = derive_context_key(password, context)
+    stream = bytearray()
+    counter = 0
+    while len(stream) < len(data):
+        stream.extend(hmac.new(key, counter.to_bytes(8, "little"), hashlib.sha256).digest())
+        counter += 1
+    return bytes(byte ^ stream[idx] for idx, byte in enumerate(data))
 
 # --- Encryption / Decryption ---
 def encrypt_payload(data: bytes, password: str) -> bytes:
