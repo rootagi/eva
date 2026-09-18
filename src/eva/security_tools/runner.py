@@ -12,6 +12,8 @@ from eva.security.redaction import redact_secrets
 from eva.security_tools.models import ToolExecutionResult
 from eva.security_tools.utils import COMMAND_SUBSTITUTION_PATTERNS, SHELL_CONTROL_TOKENS, SecurityToolError
 
+IS_POSIX = os.name == "posix"
+
 
 def validate_argv(argv: list[str]) -> None:
     if not argv or not all(isinstance(arg, str) and arg for arg in argv):
@@ -79,7 +81,7 @@ def run_tool_argv(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            start_new_session=(os.name == "posix"),
+            start_new_session=IS_POSIX,
         )
         try:
             stdout_str, stderr_str = proc.communicate(timeout=timeout)
@@ -90,7 +92,7 @@ def run_tool_argv(
             result.finished_at = finished
             result.duration_s = round(time.time() - start, 3)
         except subprocess.TimeoutExpired:
-            if os.name == "posix":
+            if IS_POSIX:
                 try:
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                 except OSError:
