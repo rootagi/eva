@@ -51,6 +51,7 @@ from eva.security.work_safety import (
     get_command_audit_log,
     parse_safe_command,
 )
+from eva.security_tools.cli import sec_app
 from eva.telemetry.diagnostics import setup_logging
 from eva.ui.formatter import is_ai_error, print_error, print_info, print_markdown, print_success
 from eva.ui.output import emit_result
@@ -89,6 +90,7 @@ app.add_typer(workflow_app, name="workflow")
 app.add_typer(workspace_app, name="workspace")
 app.add_typer(cache_app, name="cache")
 app.add_typer(context_app, name="context")
+app.add_typer(sec_app, name="sec")
 
 from eva.plugins import load_plugins
 

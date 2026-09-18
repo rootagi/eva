@@ -82,6 +82,6 @@ eva --install-completion
 7. **Safe Command Generation**: Natural language command generation via `eva work` with `--dry-run`, `--dry-run-explain`, and safety checks.
 8. **Git & Patch Workflows**: Reviewable diff generation with `eva edit` and automated commit messages via `eva commit-message`.
 9. **Fine-Grained Security Controls**: Path-aware secret redaction, configurable Shannon entropy thresholds, sensitive file allowlists, and SHA-256 hash-chained audit logging.
-10. **Plugin Architecture**: Extend Eva with custom commands and providers via `EvaPlugin` subclasses and Python entry points.
-11. **Rust Performance**: Optional `eva-fastwalk` extension for native-speed file discovery.
-
+10. **Authorized Security Assessment & Threat Inspection**: `eva sec` provides defensive YARA scanning and rule precompilation, static binary/malware analysis (ELF, PE, Shannon block entropy, strings/IOCs), threat intelligence enrichment (NIST NVD v2, multi-feed IOC lookups with internal RFC 1918 protection), cross-platform endpoint triage scripts (Windows/Linux), report normalization, and SARIF 2.1.0 generation.
+11. **Plugin Architecture**: Extend Eva with custom commands and providers via `EvaPlugin` subclasses and Python entry points.
+12. **Rust Performance**: Optional `eva-fastwalk` extension for native-speed file discovery.

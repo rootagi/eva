@@ -1,0 +1,12 @@
+version: 1
+engagement_id: local-dev-001
+expires_at: 2026-12-31T23:59:59Z
+paths:
+  - .
+web_targets:
+  - https://staging.example.internal
+allowed_ports: [80, 443]
+max_requests_per_second: 2
+max_concurrency: 2
+max_duration_seconds: 600
+allow_active_scanning: false

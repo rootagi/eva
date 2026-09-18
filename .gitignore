@@ -29,6 +29,7 @@ MANIFEST
 # Unit test / linter caches
 .pytest_cache/
 .ruff_cache/
+vm_test_artifacts/
 .coverage
 .hypothesis/
 htmlcov/
@@ -58,4 +59,5 @@ eva.log
 # Temporary / agent directories
 .agents/
 .codex/
+.eva/
 assets/demo.mp4

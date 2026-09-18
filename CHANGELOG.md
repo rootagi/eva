@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [4.4.0] - 2026-09-18
+
+### Added
+- **Defensive YARA Scanning & Rule Precompilation (`eva sec yara`):**
+  - High-performance scanning engine powered by `yara-python` with compiled binary rule caching (`eva sec yara compile <dir> -o <bin>` and `eva sec yara scan <path> --rules <rules>`).
+  - Curated baseline defensive rule set in `src/eva/security_tools/rules/yara/`:
+    - `webshells.yar`: Detects PHP, JSP, ASPX webshell execution primitives, `eval(base64_decode(...))`, and droppers.
+    - `suspicious_packers.yar`: Signatures for UPX, ASPack, Themida, and PECompact.
+    - `embedded_pe.yar`: Detects embedded Windows PE executables inside documents (PDF) and images (PNG, JPEG, GIF) with DOS stub validation.
+    - `obfuscation.yar`: Detects obfuscated PowerShell execution flags (`-w hidden -enc`, `DownloadString`, `IEX`) and base64 encoded binaries.
+    - `cve_exploits.yar`: Signatures for Log4j JNDI lookups and generic reverse shell commands.
+  - Normalizes rule matches into Eva's unified `Finding` schema with exact matched strings and byte offsets as evidence.
+  - Full multi-format report exports: Terminal table, JSON, Markdown, and SARIF 2.1.0 (`$schema: .../sarif-schema-2.1.0.json`).
+- **Static Binary & Malware Analysis (`eva sec binary`):**
+  - `eva sec binary elf <file>`: ELF32/ELF64 header parsing, architecture, entry point, shared libraries, dynamic symbols, and exploit mitigation auditing (Stack Canary, Full/Partial/None RELRO, NX/DEP, PIE). Flags $W \oplus X$ violations (executable stack).
+  - `eva sec binary pe <file>`: Windows PE32/PE32+ static inspection (DOS/NT headers, entry point, compilation timestamp, imported DLLs/APIs, exported functions, sections). Flags missing ASLR/DEP in `DllCharacteristics` and RWX section violations.
+  - `eva sec binary entropy <file> [--block-size 1024]`: Shannon entropy calculation per block and sliding window. Flags packed/encrypted code regions ($\ge 7.2$ bits/byte) with `entropy.file.packed_encrypted` findings. Zero-safe on empty and uniform files.
+  - `eva sec binary strings <file> [--min-len 4] [--encoding ascii,utf16]`: Pure-Python string extraction with automatic IOC regex classification (public/private IPv4, URLs, Windows Registry persistence keys, PowerShell cradles, reverse shell commands).
+  - Resilient, non-crashing parser design: graceful error handling and structured `malformed` findings for truncated/corrupt headers.
+- **Threat Intelligence Enrichment (`eva sec intel`):**
+  - `eva sec intel cve <cve-id>`: Live vulnerability enrichment via NIST NVD API v2, extracting descriptions, CVSS v3.1 base score, severity, CWE IDs, and affected CPE criteria.
+  - `eva sec intel ioc <ioc-value>`: Automatic IOC detection (IPv4, IPv6, Domain, URL, MD5, SHA-256) and multi-feed enrichment via AlienVault OTX, URLhaus, and AbuseIPDB.
+  - **Internal RFC 1918 Network Protection**: Automatically identifies RFC 1918 private IPs (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and loopback addresses, immediately suppressing outbound queries to public feeds to prevent corporate topology leaks.
+  - `eva sec intel extract <target>`: Unstructured log/text parsing with IOC deduplication, domain false-positive filtering (`localhost`, `.internal`, `.local`), and secret redaction.
+- **Cross-Platform Endpoint Triage Scripts (`scripts/`):**
+  - **Windows PowerShell Suite** (`scripts/windows/`): `Get-HostTriage.ps1`, `Audit-SystemHardening.ps1`, `Get-SecurityEvents.ps1`, `Find-SuspiciousPersistence.ps1`, `Audit-UserAccounts.ps1`, `Get-NetworkTriage.ps1`.
+  - **Linux POSIX Shell Suite** (`scripts/linux/`): Zero-dependency scripts `host_triage.sh`, `audit_hardening.sh`, `find_persistence.sh`, `security_events.sh`, `network_triage.sh`.
+  - Ingestable via `eva sec ingest <file.json>` and reportable via `eva sec report`.
+- **Validation on Live Arch Linux VM:**
+  - 44-scenario automated test matrix (`scripts/test_vm_matrix.py`) executed cleanly on live Arch Linux VM (`Linux Valyria 7.2.6-arch2-1 x86_64`) with 100% pass rate.
+
 ## [4.3.1] - 2026-08-15
 
 ### Added

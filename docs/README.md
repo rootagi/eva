@@ -10,10 +10,11 @@ This directory contains the official documentation for Eva CLI, mirroring the co
 | [Command Reference](command-reference.md) | Complete CLI command reference with examples. |
 | [Configuration](configuration.md) | Provider setup, environment variables, config.toml, and health diagnostics. |
 | [Security & Hardening](security-model.md) | Secret redaction, audit logging, command safety, and sandbox controls. |
+| [Eva Sec](eva-sec.md) | Authorized security assessment, YARA scanning, binary analysis, threat intel, endpoint triage, and SARIF. |
 | [Provider Behavior](provider-behavior.md) | Provider routing, fallback strategy, caching, and offline tokenization. |
 | [Architecture](architecture.md) | Module layout, request flow diagrams, and execution pipeline. |
 | [Plugin System](plugins.md) | Writing plugins, entry points, lifecycle hooks, and fail-soft safety. |
 
 ## Version
 
-This documentation corresponds to **Eva CLI v4.2.1**.
+This documentation corresponds to **Eva CLI v4.4.0**.

@@ -1,0 +1,21 @@
+version: 1
+name: secure-repo-assessment
+artifacts_dir: .eva/artifacts
+steps:
+  - uses: trivy.filesystem
+    with:
+      path: .
+      scanners: [vuln, secret, misconfig, license]
+
+  - uses: semgrep.scan
+    with:
+      path: .
+      config: auto
+
+  - uses: gitleaks.scan
+    with:
+      path: .
+
+  - uses: report.merge
+    with:
+      format: [terminal, json, markdown, sarif]

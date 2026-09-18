@@ -63,8 +63,14 @@ The design goal is practical: keep routine terminal work fast and local, "Can't 
 - Hardened command generation via `eva work`: strict parsing, risk checks, no `shell=True`, dry-run mode, and audit logging.
 - Git-aware workflows for explaining diffs and generating commit messages.
 - Reviewable patch generation with `eva edit`.
+- Defensive security & threat inspection (`eva sec`):
+  - YARA rule compilation and high-speed scanning with curated defensive baseline rules (webshells, packers, embedded PEs, obfuscation).
+  - Static binary analysis for Windows PE32/PE32+ and Linux ELF (mitigations: ASLR, DEP/NX, Stack Canary, RELRO, PIE, $W \oplus X$ violations).
+  - Shannon block entropy calculation and sliding window analysis for packed/encrypted code detection.
+  - Threat intelligence enrichment: live NIST NVD API v2 queries, multi-feed IOC lookups with RFC 1918 internal IP leak protection, and unstructured log IOC extraction.
+  - Cross-platform endpoint triage scripts (Windows PowerShell and Linux POSIX shell) with unified finding normalization and SARIF 2.1.0 reporting.
 - Fine-grained security tuning: path-aware secret redaction, configurable Shannon entropy thresholds, and sensitive file allowlists (`eva config allow-sensitive-file`).
-- Health checks through `eva config doctor`.
+- Health checks through `eva config doctor` and `eva sec doctor`.
 - Persistent chat sessions with `eva chat --session`.
 
 ## Installation
@@ -246,6 +252,38 @@ eva tree src/eva
 
 ```
 
+Authorized defensive security operations (`eva sec`):
+
+```bash
+# Scan files or web roots with curated defensive YARA rules
+eva sec yara scan /var/www/html --recursive --format sarif
+
+# Compile YARA rules into high-performance binary cache
+eva sec yara compile src/eva/security_tools/rules/yara -o /tmp/rules.bin
+
+# Static ELF and PE exploit mitigation inspection (PIE, Canary, RELRO, W^X)
+eva sec binary elf /usr/bin/custom_daemon
+eva sec binary pe /tmp/sample.exe
+
+# Shannon entropy analysis to detect packed/encrypted payloads
+eva sec binary entropy /tmp/firmware.bin --block-size 1024
+
+# Extract IOCs and categorized strings (IPs, URLs, registry keys, reverse shells)
+eva sec binary strings /tmp/suspicious.bin --min-len 4
+
+# Threat intelligence enrichment via NIST NVD API v2
+eva sec intel cve CVE-2021-44228
+
+# Multi-feed IOC enrichment with internal RFC 1918 privacy leak protection
+eva sec intel ioc 198.51.100.45
+
+# Unstructured log file IOC extraction with false-positive filtering
+eva sec intel extract /var/log/auth.log
+
+# Normalize and ingest cross-platform endpoint triage findings
+eva sec ingest /tmp/audit_hardening.json --format markdown --format sarif
+```
+
 ## Command reference
 
 | Command | Purpose |
@@ -285,6 +323,13 @@ eva tree src/eva
 | `eva config disallow-sensitive-file <glob>` | Remove glob pattern from sensitive file allowlist. |
 | `eva config` | Manage provider, model, and API-key configuration. |
 | `eva cache clear` | Clear cached AI responses. |
+| `eva sec yara` | Compile and scan files with defensive YARA rules. |
+| `eva sec binary` | Static malware and binary analysis (PE, ELF, entropy, strings). |
+| `eva sec intel` | Threat intelligence enrichment and IOC extraction (NVD, OTX, URLhaus). |
+| `eva sec media` | Defensive media forensics through embedded Aegis engine. |
+| `eva sec assess` | Run local repo security assessment (Trivy, Semgrep, Gitleaks, OSV). |
+| `eva sec ingest` | Normalize scanner and endpoint triage JSON reports into unified findings. |
+| `eva sec report` | Render terminal, JSON, Markdown, or SARIF reports from normalized findings. |
 
 
 Global options:

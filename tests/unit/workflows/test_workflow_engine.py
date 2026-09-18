@@ -124,6 +124,17 @@ def test_run_workflow_unsafe_command_blocked():
     assert results[0]["status"] == "blocked_unsafe"
 
 
+def test_run_workflow_shell_control_blocked():
+    wf = Workflow(
+        name="pipe_test",
+        description="test shell control",
+        steps=[WorkflowStep(name="Pipe", command="echo hello | sh")],
+    )
+    results = run_workflow(wf, interactive=False)
+    assert len(results) == 1
+    assert results[0]["status"] == "blocked_unsafe"
+
+
 def test_run_workflow_step_failure():
     wf = Workflow(name="fail_test", description="test fail", steps=[WorkflowStep(name="Failing Step", command="false")])
     results = run_workflow(wf, interactive=False)

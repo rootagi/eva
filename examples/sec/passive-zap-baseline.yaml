@@ -1,0 +1,12 @@
+version: 1
+name: passive-zap-baseline
+scope: ./examples/sec/scope.yaml
+artifacts_dir: .eva/artifacts
+steps:
+  - uses: zap.baseline
+    with:
+      target: https://staging.example.internal
+
+  - uses: report.merge
+    with:
+      format: [terminal, json, sarif]

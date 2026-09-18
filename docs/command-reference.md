@@ -167,6 +167,35 @@ eva replay session-2026-08-10
 
 ---
 
+## Security Assessment Commands
+
+### `eva sec`
+Run authorized repository security assessment, defensive media forensics, report normalization, scoped ZAP baseline testing, and declarative security workflows.
+
+| Subcommand | Description |
+| --- | --- |
+| `eva sec doctor` | Detect optional tools, versions, supported features, and install guidance. |
+| `eva sec assess [PATH]` | Run Trivy, Semgrep, Gitleaks, and optional OSV/Syft local assessment adapters. |
+| `eva sec media <CMD> <FILE>` | Run Aegis forensic media analysis, steganography, signing, and file utilities. |
+| `eva sec ingest <REPORT>` | Import SARIF, scanner JSON, or Aegis JSON into Eva's finding schema. |
+| `eva sec report [REPORT]` | Produce terminal, JSON, Markdown, and SARIF reports. |
+| `eva sec run <PLAN.yaml>` | Execute a Pydantic-validated declarative security workflow. |
+| `eva sec zap <URL> --scope <scope.yaml>` | Run an authorized passive ZAP baseline scan. |
+
+```bash
+eva sec assess . --format terminal --format sarif
+eva sec media analyze ./evidence/photo.jpg
+eva sec media sign ./evidence/photo.jpg --key secretkey
+eva sec run ./examples/sec/local-repo-assessment.yaml --dry-run
+eva sec zap https://staging.example.internal --scope ./examples/sec/scope.yaml --dry-run
+```
+
+ZAP active scanning requires `--active`, a non-expired scope file with `allow_active_scanning: true`, and confirmation unless `--yes` is supplied. `--yes` never bypasses invalid scope.
+
+See [Eva Sec](eva-sec.md) for full Aegis media operations, workflow schema, scope-file rules, and SARIF integration.
+
+---
+
 ## Git Intelligence Commands
 
 ### `eva changes`
@@ -183,6 +212,49 @@ Generate a concise, conventional git commit message from staged changes.
 ```bash
 git add .
 eva commit-message
+```
+
+---
+
+## Authorized Security Operations (`eva sec`)
+
+Eva Sec provides deterministic defensive security analysis, malware inspection, and threat intelligence.
+
+| Command | Purpose |
+| --- | --- |
+| `eva sec yara scan <path>` | Scan files/directories using curated defensive YARA rules. |
+| `eva sec yara compile <dir>` | Compile raw `.yar` rules into high-performance binary rules. |
+| `eva sec binary elf <file>` | Audit ELF mitigations (Stack Canary, RELRO, PIE, NX) and W^X violations. |
+| `eva sec binary pe <file>` | Audit PE headers, ASLR, DEP/NX, and RWX section violations. |
+| `eva sec binary entropy <file>` | Compute Shannon entropy to detect packed/encrypted blocks. |
+| `eva sec binary strings <file>` | Extract ASCII/UTF-16 strings with automatic IOC classification. |
+| `eva sec intel cve <cve-id>` | Live vulnerability enrichment via NIST NVD API v2. |
+| `eva sec intel ioc <ioc>` | Threat feed enrichment with RFC 1918 internal IP leak protection. |
+| `eva sec intel extract <target>`| Parse logs/text for IOCs with false-positive filtering. |
+| `eva sec ingest <report>` | Normalize scanner and endpoint triage JSON reports. |
+| `eva sec report` | Render Markdown, SARIF 2.1.0, JSON, or Terminal finding reports. |
+| `eva sec doctor` | Check installed security tooling status. |
+| `eva sec media` | Defensive media forensics through embedded Aegis engine. |
+
+```bash
+# Scan directory with YARA rules and output SARIF
+eva sec yara scan /var/www/html --recursive --format sarif
+
+# Audit binary exploit mitigations
+eva sec binary elf /usr/bin/daemon
+eva sec binary pe payload.exe
+
+# Shannon entropy analysis
+eva sec binary entropy sample.bin --block-size 1024
+
+# Live CVE query from NIST NVD
+eva sec intel cve CVE-2021-44228
+
+# Enrich IOC while protecting internal RFC 1918 addresses
+eva sec intel ioc 198.51.100.45
+
+# Ingest and normalize endpoint triage report
+eva sec ingest /tmp/audit_hardening.json --format markdown --format sarif
 ```
 
 ---
@@ -247,4 +319,3 @@ eva --verbose ask "Why did this fail?"      # Enable verbose diagnostics logging
 eva --install-completion                    # Install shell completion (bash/zsh/fish)
 eva --show-completion                       # Print shell completion script
 ```
-

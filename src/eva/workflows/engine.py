@@ -1,5 +1,6 @@
 import logging
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,8 @@ from eva.security.work_safety import (
 logger = logging.getLogger(__name__)
 err_console = Console(stderr=True)
 
+SHELL_CONTROL_TOKENS = {"|", "||", "&&", ";", ">", ">>", "<", "<<", "$(", "`"}
+
 
 @dataclass
 class WorkflowStep:
@@ -34,6 +37,12 @@ class Workflow:
     description: str
     steps: list[WorkflowStep] = field(default_factory=list)
     version: str = "1.0"
+
+
+def _reject_shell_control_tokens(argv: list[str]) -> None:
+    for token in argv:
+        if token in SHELL_CONTROL_TOKENS or "$(" in token or "`" in token:
+            raise UnsafeCommandError(f"Workflow commands cannot use shell control token: {token}")
 
 
 def get_builtins_dir() -> Path:
@@ -200,6 +209,32 @@ def run_workflow(
             )
             break
 
+        try:
+            _reject_shell_control_tokens(parsed.argv)
+        except UnsafeCommandError as exc:
+            append_command_audit(
+                {
+                    "workflow": workflow.name,
+                    "step": step.name,
+                    "command": parsed.command,
+                    "argv": parsed.argv,
+                    "executed": False,
+                    "blocked_reason": f"unsafe_shell_control: {exc}",
+                }
+            )
+            err_console.print(f"  [bold red]Refusing workflow shell features in step '{step.name}': {exc}[/bold red]")
+            results.append(
+                {
+                    "step": step.name,
+                    "command": parsed.command,
+                    "argv": parsed.argv,
+                    "executed": False,
+                    "status": "blocked_unsafe",
+                    "error": str(exc),
+                }
+            )
+            break
+
         # 2. Approval Gate (Human approval before execution)
         if interactive:
             if confirm_func:
@@ -229,20 +264,24 @@ def run_workflow(
                 break
 
         # 3. Execution
-        res = subprocess.run(parsed.command, shell=True, capture_output=True, text=True, check=False)
+        started = time.time()
+        res = subprocess.run(parsed.argv, shell=False, capture_output=True, text=True, check=False)
         append_command_audit(
             {
                 "workflow": workflow.name,
                 "step": step.name,
                 "command": parsed.command,
+                "argv": parsed.argv,
                 "executed": True,
                 "return_code": res.returncode,
+                "duration_s": round(time.time() - started, 3),
             }
         )
 
         step_result = {
             "step": step.name,
             "command": parsed.command,
+            "argv": parsed.argv,
             "executed": True,
             "returncode": res.returncode,
             "stdout": res.stdout,
