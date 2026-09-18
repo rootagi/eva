@@ -1,5 +1,3 @@
-import time
-
 import pytest
 
 from eva.cache import Cache, clear_cache, generate_cache_key, get_cached_response, set_cached_response
@@ -45,11 +43,16 @@ def test_cache_dict_protocol_and_delete(tmp_path):
     cache.delete("non_existent")
 
 
-def test_cache_ttl_expiration(tmp_path):
+def test_cache_ttl_expiration(tmp_path, monkeypatch):
+    current_time = 1000.0
+    monkeypatch.setattr("eva.cache.cache.time.time", lambda: current_time)
+
     cache = Cache(tmp_path / "ttl_cache")
-    cache.set("ephemeral", "data", expire=0.01)
+    cache.set("ephemeral", "data", expire=60.0)
     assert cache.get("ephemeral") == "data"
-    time.sleep(0.02)
+
+    # Advance time past expiration
+    current_time = 1061.0
     assert cache.get("ephemeral") is None
 
 
