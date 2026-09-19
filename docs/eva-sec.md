@@ -2,7 +2,7 @@
 
 `eva sec` is Eva's authorized security assessment and evidence-analysis module. It is designed for local repository checks, defensive media forensics, report normalization, and scoped web-app baseline testing.
 
-Eva Sec does not install third-party tools automatically. Use `eva sec doctor` to see what is available and how to install missing tools.
+All core Eva capabilities and engines—including the Aegis media forensics engine, defensive YARA scanner, ELF/PE binary analyzers, Shannon entropy engine, threat intelligence client, and endpoint triage scripts—come built directly into Eva and work out of the box with zero extra downloads. Optional third-party external scanners (such as Trivy, Semgrep, Gitleaks, or OWASP ZAP) can be audited via `eva sec doctor` if you wish to integrate them into multi-tool assessment workflows.
 
 ## Commands
 
@@ -86,33 +86,35 @@ allow_active_scanning: false
 
 ZAP targets must match the approved scheme, host, port, and path scope. Expired scopes are rejected. Active scanning requires `allow_active_scanning: true`, `--active`, and confirmation unless `--yes` is supplied. `--yes` never bypasses an invalid, absent, or expired scope.
 
-## Aegis Integration (`eva sec media`)
+## Aegis Forensic Engine (`eva sec media`)
 
-Eva directly vendors and integrates the full feature set from `rootagi/Aegis` directly within the CLI engine under `eva.security_tools.aegis_engine`, providing in-process forensic analysis, steganographic detection and simulation, cryptographic evidence signing, and safe evidence utilities:
+**Aegis** is Eva's native, forensic-grade image security and media intelligence engine (`eva.security_tools.aegis_engine`). Built directly into the Eva CLI, Aegis provides an advanced suite for digital evidence analysis, tamper detection, steganography inspection, metadata sanitization, and cryptographic chain-of-custody attestation without requiring external cloud services or third-party binaries.
 
-### Forensic Analysis & Integrity
-- `analyze`: Comprehensive image and media analysis (metadata, ELA, bitplanes, structural anomalies).
-- `detect-stego`: Statistical and signature-based steganography detection.
-- `scan-structure`: Structural validation and format conformance verification.
-- `slice-bitplanes`: Extract and visualize individual RGB bitplanes.
-- `extract-hidden`: Extract detected hidden streams or metadata payloads.
-- `sanitize`: Strip metadata, GPS coords, ICC profiles, and hidden appended payloads from images.
+Aegis treats all media inputs as untrusted, performing in-process inspection with strict resource bounds, memory safety, and zero-leak guarantees.
 
-### Cryptographic Signatures
-- `sign` / `verify`: Symmetric HMAC-SHA256 evidence signature creation and verification.
-- `keygen`: Generate Ed25519 asymmetric cryptographic keypairs for evidence authentication.
-- `sign-asymmetric` / `verify-asymmetric`: Asymmetric Ed25519 evidence signing and verification.
+### Forensic Analysis & Structural Integrity
+- `analyze`: Comprehensive multi-layered forensic inspection of digital images (metadata extraction, Error Level Analysis [ELA] to detect resaved or spliced regions, bitplane variance analysis, and structural anomaly detection).
+- `detect-stego`: Statistical and signature-based steganography detection (evaluates LSB distribution, chi-square sample variance, and frequency-domain DCT coefficients to detect concealed payloads).
+- `scan-structure`: Deep structural validation and format conformance verification (detects corrupted headers, abnormal chunk markers in PNG/JPEG/GIF, and trailing appended data).
+- `slice-bitplanes`: Decompose and visualize individual RGB bitplanes (0 through 7) to expose hidden visual artifacts, watermark overlays, or LSB alterations.
+- `extract-hidden`: Extract detected hidden streams or appended payloads when structural anomalies or trailing bytes are flagged.
+- `sanitize`: Privacy-preserving metadata sanitization, stripping EXIF, GPS geolocation coordinates, camera serial numbers, ICC color profiles, and hidden appended payloads while preserving visual image fidelity.
 
-### Steganographic Analysis & Carrier Testing
-- `embed` / `extract`: Carrier steganography embedding and extraction.
-- `palette-embed` / `palette-extract`: Color-palette steganographic carrier testing.
-- `meta-embed` / `meta-extract`: Metadata channel (EXIF, XMP, ICC, GPS) carrier testing.
-- `split` / `reconstruct`: Multi-carrier secret splitting across multiple media files.
-- `fs-embed` / `fs-extract`: Extended filesystem attribute (xattr) carrier testing.
+### Cryptographic Signatures & Evidence Attestation
+- `sign` / `verify`: Symmetric HMAC-SHA256 evidence signature creation and verification for tamper-proof evidence records.
+- `keygen`: Generate Ed25519 asymmetric cryptographic keypairs for forensic evidence authentication.
+- `sign-asymmetric` / `verify-asymmetric`: Asymmetric Ed25519 evidence signing and cryptographic verification, establishing non-repudiation for audit trails and law-enforcement chain of custody.
 
-### Secure File Utilities
-- `timestomp`: Clone timestamps between forensic artifacts or sanitize metadata time stamps.
-- `shred`: Multi-pass DoD-compliant secure file shredding.
+### Steganographic Analysis & Covert Carrier Testing
+- `embed` / `extract`: Spatial LSB carrier steganography embedding and extraction for defensive simulation and detection benchmarking.
+- `palette-embed` / `palette-extract`: Color-palette steganographic carrier testing in indexed images.
+- `meta-embed` / `meta-extract`: Metadata channel (EXIF, XMP, ICC, GPS) carrier testing to evaluate covert channels.
+- `split` / `reconstruct`: Multi-carrier secret splitting across multiple media files using Shamir-style secret sharing with Argon2id-derived key encryption.
+- `fs-embed` / `fs-extract`: Extended filesystem attribute (`xattr`) carrier testing.
+
+### Forensic Anti-Tampering & Security Utilities
+- `timestomp`: Clone timestamps between forensic artifacts or sanitize metadata timestamps during baseline testing.
+- `shred`: Multi-pass DoD 5220.22-M compliant secure file shredding to prevent data recovery on decommissioned evidence files.
 
 ## Defensive YARA Scanning (`eva sec yara`)
 
