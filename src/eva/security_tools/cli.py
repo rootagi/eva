@@ -200,7 +200,7 @@ def _run_aegis_media(
         print_error(str(exc))
         raise typer.Exit(1) from exc
     if result.missing:
-        print_error("Aegis is not installed. Install from https://github.com/rootagi/Aegis")
+        print_error("Aegis engine is unavailable. Ensure image dependencies (Pillow, piexif, OpenCV) are installed.")
     if result.return_code not in (0, None):
         if result.stderr:
             print_error(result.stderr)
