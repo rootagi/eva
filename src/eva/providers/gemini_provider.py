@@ -1,7 +1,6 @@
+import sys
 from collections.abc import Iterator
-
-from google import genai
-from google.genai import errors
+from typing import Any
 
 from eva.config import AppConfig, get_api_key
 from eva.indexing.tokenizer import trim_context
@@ -18,6 +17,20 @@ from eva.providers import (
 )
 
 
+def __getattr__(name: str) -> Any:
+    if name == "genai":
+        from google import genai
+
+        globals()["genai"] = genai
+        return genai
+    if name == "errors":
+        from google.genai import errors
+
+        globals()["errors"] = errors
+        return errors
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 class GeminiProvider(Provider):
     name = "gemini"
     max_rpm = 15
@@ -29,6 +42,10 @@ class GeminiProvider(Provider):
         api_key = get_api_key(self.name)
         if not api_key:
             raise AuthError(f"Missing API key for {self.name}. Use: eva config set-key {self.name}")
+
+        _mod = sys.modules[__name__]
+        genai = _mod.genai
+        errors = _mod.errors
 
         client = genai.Client(api_key=api_key)
 
@@ -69,6 +86,10 @@ class GeminiProvider(Provider):
         api_key = get_api_key(self.name)
         if not api_key:
             raise AuthError(f"Missing API key for {self.name}. Use: eva config set-key {self.name}")
+
+        _mod = sys.modules[__name__]
+        genai = _mod.genai
+        errors = _mod.errors
 
         client = genai.Client(api_key=api_key)
 
@@ -139,6 +160,10 @@ def get_models() -> list[dict]:
     api_key = get_api_key("gemini")
     if not api_key:
         return []
+
+    _mod = sys.modules[__name__]
+    genai = _mod.genai
+    errors = _mod.errors
 
     try:
         client = genai.Client(api_key=api_key)

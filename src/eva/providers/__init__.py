@@ -65,8 +65,18 @@ class Provider(Protocol):
     ) -> Iterator[TextDelta | ToolCall]: ...
 
 
+import importlib
+
 # Provider registry
 _PROVIDERS: dict[str, Provider] = {}
+PROVIDER_MAP: dict[str, str] = {
+    "gemini": "eva.providers.gemini_provider",
+    "groq": "eva.providers.groq_provider",
+    "llamacpp": "eva.providers.llamacpp_provider",
+    "ollama": "eva.providers.ollama_provider",
+    "opencode_zen": "eva.providers.opencode_zen_provider",
+    "openrouter": "eva.providers.openrouter_provider",
+}
 DEFAULT_CONTEXT_BUDGET = 4000
 
 
@@ -75,7 +85,13 @@ def register_provider(provider: Provider):
 
 
 def get_provider(name: str) -> Provider | None:
-    return _PROVIDERS.get(name)
+    if name in _PROVIDERS:
+        return _PROVIDERS[name]
+    mod_path = PROVIDER_MAP.get(name)
+    if mod_path is not None:
+        importlib.import_module(mod_path)
+        return _PROVIDERS.get(name)
+    return None
 
 
 def is_tool_capable(provider_name: str) -> bool:
@@ -88,6 +104,9 @@ def is_tool_capable(provider_name: str) -> bool:
 
 def get_tool_capable_providers() -> list[str]:
     """Return list of names of registered providers supporting tool calling."""
+    for name in PROVIDER_MAP:
+        if name not in _PROVIDERS:
+            get_provider(name)
     return [name for name, p in _PROVIDERS.items() if getattr(p, "supports_tools", False) is True]
 
 
@@ -250,12 +269,3 @@ def call_provider(
         duration = time.time() - start_t
         record_provider_metric(provider.name, duration, False, error_type=type(exc).__name__, config=config)
         raise
-
-
-# Auto-register providers
-import eva.providers.gemini_provider
-import eva.providers.groq_provider
-import eva.providers.llamacpp_provider
-import eva.providers.ollama_provider
-import eva.providers.opencode_zen_provider
-import eva.providers.openrouter_provider  # noqa: F401

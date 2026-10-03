@@ -1,9 +1,8 @@
 import json
 import logging
+import sys
 from collections.abc import Iterator
-
-import openai
-from openai import OpenAI
+from typing import Any
 
 from eva.config import AppConfig, get_api_key
 from eva.indexing.tokenizer import trim_context
@@ -21,6 +20,20 @@ from eva.providers import (
 logger = logging.getLogger(__name__)
 
 
+def __getattr__(name: str) -> Any:
+    if name == "openai":
+        import openai
+
+        globals()["openai"] = openai
+        return openai
+    if name == "OpenAI":
+        from openai import OpenAI
+
+        globals()["OpenAI"] = OpenAI
+        return OpenAI
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 class OpenAICompatibleProvider(Provider):
     """Base for providers that expose an OpenAI-compatible chat completions API."""
 
@@ -36,6 +49,10 @@ class OpenAICompatibleProvider(Provider):
         api_key = get_api_key(self.name)
         if not api_key:
             raise AuthError(f"Missing API key for {self.name}. Use: eva config set-key {self.name}")
+
+        _mod = sys.modules[__name__]
+        openai = _mod.openai
+        OpenAI = _mod.OpenAI
 
         client = OpenAI(base_url=self.base_url, api_key=api_key)
 
@@ -70,6 +87,10 @@ class OpenAICompatibleProvider(Provider):
         api_key = get_api_key(self.name)
         if not api_key:
             raise AuthError(f"Missing API key for {self.name}. Use: eva config set-key {self.name}")
+
+        _mod = sys.modules[__name__]
+        openai = _mod.openai
+        OpenAI = _mod.OpenAI
 
         client = OpenAI(base_url=self.base_url, api_key=api_key)
         provider_config = config.providers.get(self.name)

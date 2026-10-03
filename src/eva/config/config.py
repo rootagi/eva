@@ -2,8 +2,6 @@ import logging
 import os
 from pathlib import Path
 
-import keyring
-from keyring.errors import KeyringError, NoKeyringError
 from platformdirs import user_config_dir
 from pydantic import BaseModel, Field
 
@@ -92,6 +90,9 @@ def get_api_key(provider: str) -> str | None:
     env_key = os.getenv(get_api_key_env_var(provider))
     if env_key:
         return env_key
+    import keyring
+    from keyring.errors import KeyringError, NoKeyringError
+
     try:
         return keyring.get_password(APP_NAME, provider)
     except NoKeyringError:
@@ -103,6 +104,9 @@ def get_api_key(provider: str) -> str | None:
 
 
 def set_api_key(provider: str, key: str):
+    import keyring
+    from keyring.errors import KeyringError, NoKeyringError
+
     try:
         keyring.set_password(APP_NAME, provider, key)
     except NoKeyringError as exc:
@@ -116,6 +120,9 @@ def set_api_key(provider: str, key: str):
 
 
 def clear_api_key(provider: str):
+    import keyring
+    from keyring.errors import KeyringError, NoKeyringError
+
     try:
         keyring.delete_password(APP_NAME, provider)
     except keyring.errors.PasswordDeleteError:
@@ -127,6 +134,9 @@ def clear_api_key(provider: str):
 
 
 def keyring_backend_available() -> tuple[bool, str]:
+    import keyring
+    from keyring.errors import KeyringError, NoKeyringError
+
     try:
         backend = keyring.get_keyring()
         priority = getattr(backend, "priority", None)

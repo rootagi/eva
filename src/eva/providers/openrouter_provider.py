@@ -1,7 +1,5 @@
 import logging
 
-import httpx
-
 from eva.cache import get_cache
 from eva.providers import register_provider
 from eva.providers.openai_compat import OpenAICompatibleProvider
@@ -11,6 +9,8 @@ MODEL_CACHE_KEY = "models:openrouter:free"
 
 
 def get_free_models() -> list[dict]:
+    import httpx
+
     with get_cache() as cache:
         cached = cache.get(MODEL_CACHE_KEY)
         if cached:

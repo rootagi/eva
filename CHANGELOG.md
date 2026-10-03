@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [4.4.1] - 2026-10-03
+
+### Changed
+- **CLI Startup Performance Optimization (~15x Faster Cold Launch):**
+  - Eliminated eager top-level imports of heavy LLM SDKs (`google.genai`, `openai`), security analyzers (`yara`, `pefile`, `pyelftools`, `aegis`), and `keyring` across the CLI startup path, reducing `eva --help` and `eva --version` startup latency from ~6.0s to <0.4s.
+  - Moved plugin discovery (`load_plugins(app)`) from module import scope into the `@app.callback()` runtime hook in `src/eva/cli/app.py`.
+  - Wrapped `eva sec` in a lazy Click group (`_LazySecGroup` in `src/eva/cli/commands/security.py`) so `eva.security_tools.cli` is only imported when `eva sec` subcommands are invoked.
+  - Replaced eager provider registration in `src/eva/providers/__init__.py` with a lazy `PROVIDER_MAP` registry that loads provider modules on first request, and deferred `google.genai`, `openai`, and `httpx` client imports until generation/model-listing time.
+  - Added lazy `__getattr__` package exports in `eva.indexing`, `eva.security`, and `eva.workspace`, and deferred `keyring` backend imports in `src/eva/config/config.py`.
+- **Phase 0 CLI Foundation Refactoring (`src/eva/cli/`):**
+  - Decomposed the monolithic 1,423-line `src/eva/cli/app.py` into per-domain command modules under `src/eva/cli/commands/` (`ask.py`, `chat.py`, `work.py`, `edit.py`, `context.py`, `config_cmd.py`, `budget.py`, `cache_cmd.py`, `workflow.py`, `workspace.py`, `security.py`) and shared utilities in `src/eva/cli/helpers.py`.
+  - Preserved full backward compatibility for module-level attribute access and test monkeypatching on `eva.cli.app` via PEP 562 `__getattr__`.
+
+### Fixed
+- **Built-in `security_scan` Workflow (`src/eva/workflows/builtins/security_scan.yaml`):**
+  - Removed the disallowed `|| true` shell control operator from the `Scan Config Key Patterns` step so `eva workflow run security_scan` passes strict argv safety validation.
+
 ## [4.4.0] - 2026-09-18
 
 ### Added

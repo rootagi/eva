@@ -8,5 +8,5 @@ steps:
     risk_level: "low"
   - name: Scan Config Key Patterns
     description: "Scan for hardcoded secret variables."
-    command: "grep -rn 'API_KEY' --exclude-dir='.git' --exclude-dir='.venv' --exclude='*.jsonl' . || true"
+    command: "grep -rn 'API_KEY' --exclude-dir='.git' --exclude-dir='.venv' --exclude='*.jsonl' src"
     risk_level: "low"
