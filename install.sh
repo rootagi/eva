@@ -31,11 +31,13 @@ confirm() {
     local default_answer="${2:-n}"
     local answer=""
 
-    if [[ -t 0 ]]; then
-        ask "$prompt"
-        IFS= read -r answer || answer="$default_answer"
+    ask "$prompt"
+    
+    # Try to read from /dev/tty (terminal), fall back to stdin if not available
+    if read -r answer </dev/tty 2>/dev/null; then
+        :
     else
-        info "$prompt"
+        # Non-interactive; use default
         warn "stdin is not a TTY; defaulting to '$default_answer' in non-interactive mode."
         answer="$default_answer"
     fi
@@ -78,7 +80,7 @@ elif command -v pipx >/dev/null 2>&1; then
 else
     warn "Neither uv nor pipx is installed."
 
-    if confirm "uv is required to continue with the isolated installation. Install uv from astral.sh?" "y"; then
+    if confirm "uv is required to continue with the isolated installation. Install uv from astral.sh?"; then
         info "Downloading and installing uv from https://astral.sh..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
 
@@ -86,7 +88,7 @@ else
     else
         warn "uv installation cancelled."
 
-        if confirm "Fall back to installing Eva with pip --user?" "n"; then
+        if confirm "Fall back to installing Eva with pip --user?"; then
             install_with_pip
         else
             warn "Installation cancelled."
