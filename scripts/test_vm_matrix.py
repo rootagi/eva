@@ -5,8 +5,9 @@ Exercises:
 1. eva sec yara (compile, scan, formats, dry-run, webshell, obfuscation, embedded PE, edge cases)
 2. eva sec binary (elf, pe, entropy, strings, secure vs insecure ELF, mitigations, W^X, edge cases)
 3. eva sec intel (cve live, invalid cve, ioc public, ioc rfc1918, domain, hash, extract, dry-run)
-4. scripts/linux (host_triage, audit_hardening, find_persistence, security_events, network_triage)
-5. eva sec ingest & report (ingesting triage outputs, rendering multi-format reports)
+4. scripts/linux (all 14 host, account, hardening, log, rootkit, cloud, container, and forensics collectors)
+5. scripts tooling (orchestrator, JSON validator, evidence bundle create/verify/tamper detection)
+6. eva sec ingest & report (ingesting triage outputs, rendering multi-format reports)
 """
 
 from __future__ import annotations
@@ -894,16 +895,25 @@ class TestRunner:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         scripts = [
-            ("host_triage.sh", out_dir / "host_triage.json", "triage-linux"),
-            ("audit_hardening.sh", out_dir / "audit_hardening.json", "triage-linux-hardening"),
-            ("find_persistence.sh", out_dir / "find_persistence.json", "triage-linux-persistence"),
-            ("security_events.sh", out_dir / "security_events.json", "triage-linux-events"),
-            ("network_triage.sh", out_dir / "network_triage.json", "triage-linux-network"),
+            ("host_triage.sh", out_dir / "host_triage.json", "triage-linux", 60),
+            ("audit_hardening.sh", out_dir / "audit_hardening.json", "triage-linux-hardening", 60),
+            ("find_persistence.sh", out_dir / "find_persistence.json", "triage-linux-persistence", 60),
+            ("security_events.sh", out_dir / "security_events.json", "triage-linux-events", 60),
+            ("network_triage.sh", out_dir / "network_triage.json", "triage-linux-network", 60),
+            ("incident_response.sh", out_dir / "incident_response.json", "triage-linux-incident-response", 180),
+            ("audit_accounts.sh", out_dir / "audit_accounts.json", "triage-linux-accounts", 60),
+            ("analyze_logs.sh", out_dir / "analyze_logs.json", "triage-linux-logs", 60),
+            ("detect_rootkits.sh", out_dir / "detect_rootkits.json", "triage-linux-rootkit", 300),
+            ("hunt_suspicious_files.sh", out_dir / "hunt_suspicious_files.json", "triage-linux-file-hunt", 120),
+            ("network_forensics.sh", out_dir / "network_forensics.json", "triage-linux-network-forensics", 120),
+            ("package_integrity.sh", out_dir / "package_integrity.json", "triage-linux-package-integrity", 300),
+            ("cloud_metadata.sh", out_dir / "cloud_metadata.json", "triage-linux-cloud", 90),
+            ("container_triage.sh", out_dir / "container_triage.json", "triage-linux-containers", 60),
         ]
 
-        for script_name, out_file, expected_tool in scripts:
+        for script_name, out_file, expected_tool, timeout in scripts:
             script_path = triage_dir / script_name
-            code, out, err, dur = self.run_cmd(["bash", str(script_path)])
+            code, out, err, dur = self.run_cmd(["bash", str(script_path)], timeout=timeout)
             out_file.write_text(out)
 
             # Validate JSON parse
@@ -933,8 +943,246 @@ class TestRunner:
                 f"Valid JSON={is_valid_json}, schema={schema_ok}, tool={tool_ok}",
             )
 
+    def test_triage_tooling_suite(self) -> None:
+        self.log("Starting Suite 5: Triage Orchestrator, Validator and Evidence Bundles...")
+        out_dir = self.test_dir / "triage_outputs"
+        tool_dir = self.test_dir / "triage_tooling"
+        tool_dir.mkdir(parents=True, exist_ok=True)
+        python = sys.executable
+        valid_report = out_dir / "host_triage.json"
+
+        # 1. Script discovery
+        code, out, err, dur = self.run_cmd([python, "scripts/triage_orchestrator.py", "--list"])
+        passed = code == 0 and "Platform:" in out and "host_triage.sh" in out and "package_integrity.sh" in out
+        self.record(
+            "triage_tooling",
+            "orchestrator_list",
+            "python3 scripts/triage_orchestrator.py --list",
+            code,
+            out,
+            err,
+            dur,
+            passed,
+            "Discovered Linux collectors with descriptions",
+        )
+
+        # 2. Dry run: no collectors should execute
+        code, out, err, dur = self.run_cmd(
+            [python, "scripts/triage_orchestrator.py", "--dry-run", "--exclude-slow", "--json"]
+        )
+        dry_run_data: dict[str, Any] = {}
+        try:
+            dry_run_data = json.loads(out)
+        except json.JSONDecodeError:
+            pass
+        discovered = [entry.get("name") for entry in dry_run_data.get("scripts", [])]
+        passed = (
+            code == 0
+            and dry_run_data.get("dry_run") is True
+            and "host_triage.sh" in discovered
+            and "package_integrity.sh" not in discovered
+        )
+        self.record(
+            "triage_tooling",
+            "orchestrator_dry_run",
+            "python3 scripts/triage_orchestrator.py --dry-run --exclude-slow --json",
+            code,
+            out,
+            err,
+            dur,
+            passed,
+            f"Dry run selected {len(discovered)} collector(s)",
+        )
+
+        # 3. Validator accepts a collector report
+        code, out, err, dur = self.run_cmd([python, "scripts/validate_triage.py", str(valid_report)])
+        passed = code == 0 and "1 valid" in out and "0 invalid" in out
+        self.record(
+            "triage_tooling",
+            "validator_accepts_triage",
+            f"python3 scripts/validate_triage.py {valid_report.name}",
+            code,
+            out,
+            err,
+            dur,
+            passed,
+            "Validated eva.triage.v1 report",
+        )
+
+        # 4. Validator rejects malformed findings
+        invalid_report = tool_dir / "invalid_triage.json"
+        invalid_report.write_text(
+            json.dumps({"schema": "eva.triage.v1", "tool": "invalid", "findings": [{"severity": "bogus"}]})
+        )
+        code, out, err, dur = self.run_cmd([python, "scripts/validate_triage.py", str(invalid_report)])
+        combined = out + err
+        passed = code == 1 and "0 valid" in combined and "1 invalid" in combined
+        self.record(
+            "triage_tooling",
+            "validator_rejects_invalid",
+            f"python3 scripts/validate_triage.py {invalid_report.name}",
+            code,
+            out,
+            err,
+            dur,
+            passed,
+            "Rejected malformed triage report with exit code 1",
+        )
+
+        # 5. Orchestrator executes selected collectors and aggregates findings
+        run_dir = tool_dir / "orchestrator_run"
+        code, out, err, dur = self.run_cmd(
+            [
+                python,
+                "scripts/triage_orchestrator.py",
+                "--script",
+                "host_triage.sh",
+                "--script",
+                "audit_accounts.sh",
+                "--output",
+                str(run_dir),
+                "--quiet",
+                "--json",
+            ],
+            timeout=120,
+        )
+        run_data: dict[str, Any] = {}
+        try:
+            run_data = json.loads(out)
+        except json.JSONDecodeError:
+            pass
+        generated = sorted(path.name for path in run_dir.glob("linux-*.json"))
+        passed = (
+            code == 0
+            and run_data.get("schema") == "eva.triage.orchestrator.v1"
+            and run_data.get("scripts_ok") == 2
+            and len(generated) == 2
+            and (run_dir / "summary.json").exists()
+            and (run_dir / "findings.jsonl").exists()
+        )
+        self.record(
+            "triage_tooling",
+            "orchestrator_selected_run",
+            "python3 scripts/triage_orchestrator.py --script host_triage.sh --script audit_accounts.sh",
+            code,
+            out,
+            err,
+            dur,
+            passed,
+            f"Ran 2 collectors and generated {len(generated)} reports plus summary",
+        )
+
+        # 6. Evidence bundle create/verify/list
+        archive = tool_dir / "evidence.tar.gz"
+        code, out, err, dur = self.run_cmd(
+            [
+                python,
+                "scripts/evidence_bundle.py",
+                "create",
+                str(run_dir),
+                "--case-id",
+                "VM-MATRIX-001",
+                "--examiner",
+                "test-matrix",
+                "--note",
+                "Suite 5 evidence bundle",
+                "--output",
+                str(archive),
+                "--force",
+                "--quiet",
+                "--json",
+            ]
+        )
+        create_data: dict[str, Any] = {}
+        try:
+            create_data = json.loads(out)
+        except json.JSONDecodeError:
+            pass
+        passed = (
+            code == 0
+            and create_data.get("valid") is True
+            and create_data.get("case_id") == "VM-MATRIX-001"
+            and archive.exists()
+            and Path(f"{archive}.sha256").exists()
+        )
+        self.record(
+            "triage_tooling",
+            "evidence_bundle_create",
+            f"python3 scripts/evidence_bundle.py create {run_dir.name} --output {archive.name}",
+            code,
+            out,
+            err,
+            dur,
+            passed,
+            "Created tar.gz archive, manifest and SHA-256 sidecar",
+        )
+
+        code, out, err, dur = self.run_cmd([python, "scripts/evidence_bundle.py", "verify", str(archive), "--json"])
+        verify_data: dict[str, Any] = {}
+        try:
+            verify_data = json.loads(out)
+        except json.JSONDecodeError:
+            pass
+        passed = code == 0 and verify_data.get("valid") is True and not verify_data.get("errors")
+        self.record(
+            "triage_tooling",
+            "evidence_bundle_verify",
+            f"python3 scripts/evidence_bundle.py verify {archive.name}",
+            code,
+            out,
+            err,
+            dur,
+            passed,
+            "Verified archive hash, sidecar and manifest",
+        )
+
+        code, out, err, dur = self.run_cmd([python, "scripts/evidence_bundle.py", "list", str(archive), "--json"])
+        list_data: dict[str, Any] = {}
+        try:
+            list_data = json.loads(out)
+        except json.JSONDecodeError:
+            pass
+        passed = code == 0 and list_data.get("case_id") == "VM-MATRIX-001" and list_data.get("file_count", 0) > 0
+        self.record(
+            "triage_tooling",
+            "evidence_bundle_list",
+            f"python3 scripts/evidence_bundle.py list {archive.name}",
+            code,
+            out,
+            err,
+            dur,
+            passed,
+            "Read bundle manifest metadata without rehashing",
+        )
+
+        # 7. Tamper detection
+        tampered = tool_dir / "evidence-tampered.tar.gz"
+        tampered_sidecar = Path(f"{tampered}.sha256")
+        shutil.copy2(archive, tampered)
+        shutil.copy2(f"{archive}.sha256", tampered_sidecar)
+        with tampered.open("ab") as handle:
+            handle.write(b"tampered")
+        code, out, err, dur = self.run_cmd([python, "scripts/evidence_bundle.py", "verify", str(tampered), "--json"])
+        tamper_data: dict[str, Any] = {}
+        try:
+            tamper_data = json.loads(out)
+        except json.JSONDecodeError:
+            pass
+        passed = code == 1 and tamper_data.get("valid") is False and bool(tamper_data.get("errors"))
+        self.record(
+            "triage_tooling",
+            "evidence_bundle_tamper_detection",
+            f"python3 scripts/evidence_bundle.py verify {tampered.name}",
+            code,
+            out,
+            err,
+            dur,
+            passed,
+            "Detected modified archive via SHA-256 sidecar mismatch",
+        )
+
     def test_ingest_and_report_suite(self) -> None:
-        self.log("Starting Suite 5: Unified Finding Ingestion & Reporting...")
+        self.log("Starting Suite 6: Unified Finding Ingestion & Reporting...")
         out_dir = self.test_dir / "triage_outputs"
         ingest_artifacts = self.test_dir / "ingest_artifacts"
 
@@ -1006,6 +1254,7 @@ class TestRunner:
         self.test_binary_suite()
         self.test_intel_suite()
         self.test_linux_triage_suite()
+        self.test_triage_tooling_suite()
         self.test_ingest_and_report_suite()
 
         total = len(self.results)

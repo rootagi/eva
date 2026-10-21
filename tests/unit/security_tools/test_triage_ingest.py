@@ -118,3 +118,34 @@ def test_cli_ingest_triage_report(tmp_path):
     result = runner.invoke(app, ["sec", "ingest", str(report_file), "--format", "terminal,json,sarif,markdown"])
     assert result.exit_code == 0
     assert "Ingested 1 findings" in result.output
+
+
+def test_normalize_triage_json_with_utf8_bom(tmp_path):
+    """Windows PowerShell 5.1 -Encoding utf8 writes a UTF-8 BOM."""
+    report_file = tmp_path / "bom_triage.json"
+    data = {
+        "schema": "eva.triage.v1",
+        "tool": "triage-windows",
+        "collected_at": "2026-09-18T00:00:00Z",
+        "host": {"hostname": "WIN-BOM-01"},
+        "findings": [
+            {
+                "id": "triage-win-bom",
+                "tool": "triage-windows",
+                "rule_id": "defender.configuration_changed",
+                "title": "BOM-prefixed Windows report",
+                "severity": "low",
+                "confidence": "medium",
+                "category": "configuration",
+                "evidence": "Report was serialized with a UTF-8 BOM.",
+                "remediation": "None; this fixture verifies BOM-tolerant ingestion.",
+                "fingerprint": "d4e5f60718293a4b5c6d7e8f90a1b2c3",
+            }
+        ],
+    }
+    report_file.write_bytes(b"\xef\xbb\xbf" + json.dumps(data).encode("utf-8"))
+
+    findings = normalize_report(report_file)
+    assert len(findings) == 1
+    assert findings[0].rule_id == "defender.configuration_changed"
+    assert findings[0].target == "WIN-BOM-01"

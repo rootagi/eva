@@ -224,22 +224,71 @@ eva sec intel extract "C2 at 198.51.100.22 and http://evil.com/payload"
 
 ## Cross-Platform Endpoint Triage (`scripts/`)
 
-Eva provides standalone, zero-dependency endpoint triage and hardening audit scripts for Windows and Linux endpoints.
+Eva provides standalone, zero-dependency endpoint triage and hardening audit scripts for
+Windows and Linux endpoints. All collectors are read-only, do not upload evidence, and
+emit `eva.triage.v1` JSON. See [`scripts/README.md`](../scripts/README.md) for the full
+inventory, parameters, safety model, and static-check commands.
 
 ### Windows PowerShell Suite (`scripts/windows/`)
-- `Get-HostTriage.ps1`: Collects OS details, listening sockets, active processes, and startup run keys.
-- `Audit-SystemHardening.ps1`: Audits UAC, SMBv1, Windows Firewall profiles, and PowerShell script logging.
+- `Get-HostTriage.ps1`: Collects OS details, listening sockets, active processes, startup run keys, and scheduled tasks.
+- `Audit-SystemHardening.ps1`: Audits UAC, SMBv1, Windows Firewall profiles, PowerShell script logging, and Credential Guard.
 - `Get-SecurityEvents.ps1`: Queries Event IDs 4624/4625, 4672, 4688, and 7045.
 - `Find-SuspiciousPersistence.ps1`: Inspects Run/RunOnce keys, Startup folders, WMI event consumers, and BITS jobs.
 - `Audit-UserAccounts.ps1`: Audits local administrators, guest account status, and password policies.
-- `Get-NetworkTriage.ps1`: Collects active connections, DNS cache, and hosts file redirects.
+- `Get-NetworkTriage.ps1`: Collects active connections, DNS cache, routes, and hosts file redirects.
+- `Get-IncidentResponse.ps1`: Captures volatile host, process, network, and service evidence with hashes for suspicious binaries.
+- `Get-ProcessTriage.ps1`: Finds parent/child anomalies, suspicious command lines, user-writable executables, and LSASS/WDigest exposure.
+- `Get-Autoruns.ps1`: Enumerates services, scheduled tasks, IFEO, WMI consumers, BITS jobs, logon scripts, and other autostarts.
+- `Audit-Credentials.ps1`: Reviews account policy, autologon, cached logons, WDigest, LSA protection, stored credentials, and SSH key ACLs.
+- `Get-LogForensics.ps1`: Correlates Security, System, PowerShell, and Defender events, including brute force and log clearing.
+- `Audit-DefenderConfig.ps1`: Audits Defender feature state, signature age, ASR, exclusions, and recent detections.
+- `Get-NetworkForensics.ps1`: Reviews interfaces, routes, neighbors, connections with process attribution, high-risk ports, SMB/RDP/WinRM, and hosts hijacks.
+- `Find-Webshells.ps1`: Read-only inspection of web roots for execution primitives, encoded payloads, double extensions, and hidden scripts.
+- `Get-CloudMetadata.ps1`: Checks AWS/GCP/Azure metadata identity and IMDSv2 posture without retrieving secret values.
+- `Get-ContainerTriage.ps1`: Assesses Docker Desktop/daemon exposure, privileged containers, sensitive mounts, and WSL isolation.
 
 ### Linux POSIX Shell Suite (`scripts/linux/`)
 - `host_triage.sh`: Zero-dependency POSIX script collecting kernel info, active listeners, cron jobs, and systemd timers.
-- `audit_hardening.sh`: Inspects SSH daemon configuration, `/etc/login.defs`, sysctl parameters (ASLR, IP forward), and SUID binaries.
-- `find_persistence.sh`: Inspects `/etc/ld.so.preload`, `/etc/rc.local`, cron directories, and systemd units for `/tmp` execution.
-- `security_events.sh`: Analyzes failed SSH logons and non-root UID 0 accounts.
+- `audit_hardening.sh`: Inspects SSH daemon configuration, `/etc/login.defs`, PAM, sysctl parameters (ASLR, IP forward), and SUID binaries.
+- `find_persistence.sh`: Inspects `/etc/ld.so.preload`, `/etc/rc.local`, cron directories, shell profiles, authorized keys, and systemd units.
+- `security_events.sh`: Analyzes failed SSH logons, sudo activity, and login sessions.
 - `network_triage.sh`: Inspects default route, DNS resolvers, hosts file redirects, and firewall status.
+- `incident_response.sh`: Captures a volatile snapshot of host identity, processes, deleted executables, listeners, mounts, kernel taint, and recent files.
+- `audit_accounts.sh`: Reviews the account database, UID 0 and duplicate IDs, password aging, sudoers, privileged groups, and SSH keys.
+- `analyze_logs.sh`: Correlates authentication and web logs for brute force, success-after-failure, and web attack patterns.
+- `detect_rootkits.sh`: Checks loader configuration, kernel modules, hidden processes, `/proc` anomalies, package integrity, and kernel taint.
+- `hunt_suspicious_files.sh`: Hunts webshells, download cradles, miners, reverse shells, and hidden/temp executables. Extra roots can be supplied with `EVA_WEB_ROOTS`.
+- `network_forensics.sh`: Reviews interfaces, promiscuous mode, routes, neighbor cache, listeners/connections, DNS, firewall, and socket owners.
+- `package_integrity.sh`: Runs `dpkg --verify`/`rpm -Va`/`apk audit`, flags recent system-binary changes, and inventories high-risk permissions.
+- `cloud_metadata.sh`: Queries only link-local AWS/GCP/Azure metadata endpoints and reports identity, IMDSv2 posture, and user-data presence/hash.
+- `container_triage.sh`: Detects Docker/Podman/containerd exposure, privileged containers, host mounts, and Kubernetes service-account clues.
+
+`detect_rootkits.sh` and `package_integrity.sh` perform full package verification and are
+noticeably slower. Use the orchestrator's `--exclude-slow` flag for quick sweeps.
+
+### Orchestration, Validation & Evidence
+```bash
+# List collectors, preview commands, or run a full sweep
+python3 scripts/triage_orchestrator.py --list
+python3 scripts/triage_orchestrator.py --dry-run --exclude-slow
+python3 scripts/triage_orchestrator.py --output .eva/triage/run-01 --timeout 300
+
+# Fail CI when a high or critical finding is present
+python3 scripts/triage_orchestrator.py --output .eva/triage/ci --fail-on high
+
+# Validate one report or a directory
+python3 scripts/validate_triage.py .eva/triage/run-01 --strict
+
+# Create and verify a tamper-evident evidence bundle (unencrypted)
+python3 scripts/evidence_bundle.py create .eva/triage/run-01 \
+  --case-id CASE-2026-001 --examiner "A. Analyst" \
+  --output evidence/CASE-2026-001.tar.gz
+python3 scripts/evidence_bundle.py verify evidence/CASE-2026-001.tar.gz
+```
+
+The orchestrator writes one ingestable report per collector plus `findings.jsonl`,
+`summary.json`, and `summary.md`. Ingest the individual `linux-*.json`/`windows-*.json`
+reports; `summary.json` is an orchestration artifact, not a triage report.
 
 ### Unified Ingestion & Reporting
 All triage scripts emit valid `eva.triage.v1` JSON. Ingest outputs directly into Eva:
@@ -248,12 +297,27 @@ All triage scripts emit valid `eva.triage.v1` JSON. Ingest outputs directly into
 # Run triage on endpoint
 bash scripts/linux/audit_hardening.sh > /tmp/audit.json
 
-# Ingest and normalize into Eva findings
-eva sec ingest /tmp/audit.json --format terminal --format markdown --format sarif
+# Run a full sweep and ingest the individual reports
+python3 scripts/triage_orchestrator.py --output .eva/triage/run-01
+eva sec ingest .eva/triage/run-01/linux-*.json --format terminal --format markdown --format sarif
 
 # Render consolidated reports across all runs
 eva sec report --format markdown --format sarif
 ```
+
+### Windows Validation and Antivirus Notes
+
+The 16 Windows collectors were validated on a Windows 10 22H2 endpoint (build 19045)
+with Windows PowerShell 5.1 and Microsoft Defender real-time protection enabled. All
+reports validated and ingested successfully. File output is UTF-8 without a BOM; Eva's
+JSON reader also accepts BOM-prefixed reports from older collectors.
+
+The collectors contain defensive IOC strings and may be quarantined by aggressive
+antivirus signatures. If that happens, review the script and add a targeted exclusion for
+the reviewed scripts directory only. Do not disable real-time protection globally.
+Windows 10's built-in Defender, OneDrive, BITS, OpenSSH, and servicing-stack activity is
+filtered or allowlisted for common benign behavior, but those filters should be reviewed
+for the target environment.
 
 ## ZAP Rules
 

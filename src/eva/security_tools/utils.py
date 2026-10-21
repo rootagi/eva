@@ -98,7 +98,9 @@ def write_text_artifact(path: Path | str, text: str, kind: str = "text") -> Arti
 
 
 def read_json_file(path: Path | str) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
+    # ``utf-8-sig`` accepts both plain UTF-8 and files with a BOM, which
+    # Windows PowerShell 5.1 writes for ``-Encoding utf8`` output.
+    with open(path, "r", encoding="utf-8-sig") as f:
         return json.load(f)
 
 

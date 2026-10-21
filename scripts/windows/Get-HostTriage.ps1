@@ -13,7 +13,7 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-$hostname = $env:COMPUTERNAME
+$hostname = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { [Environment]::MachineName }
 $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 # 1. OS Information
@@ -173,7 +173,7 @@ $report = [ordered]@{
 $jsonOutput = $report | ConvertTo-Json -Depth 5
 
 if ($OutputFile) {
-    $jsonOutput | Out-File -FilePath $OutputFile -Encoding utf8
+    [System.IO.File]::WriteAllText($OutputFile, $jsonOutput, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "[+] Triage saved to $OutputFile"
 } else {
     Write-Output $jsonOutput

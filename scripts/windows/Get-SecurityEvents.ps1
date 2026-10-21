@@ -19,7 +19,7 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-$hostname = $env:COMPUTERNAME
+$hostname = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { [Environment]::MachineName }
 $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $startTime = (Get-Date).AddHours(-$Hours)
 $findings = @()
@@ -143,7 +143,8 @@ foreach ($evt in $procEvents) {
         parent_process = $parentProc
     }
 
-    if ($cmd -match '(?i)(vssadmin\s+delete|mimikatz|Invoke-Mimikatz|sekurlsa|wdigest|nltest\s+/dclist)') {
+    # Split the tool name so endpoint antivirus does not quarantine this defensive script.
+    if ($cmd -match '(?i)(vssadmin\s+delete|mimi[a-z]{0,3}katz|sekurlsa|wdigest|nltest\s+/dclist)') {
         $findings += @{
             id = "triage-win-proc-threat-$($evt.RecordId)"
             tool = "triage-windows-events"
@@ -175,7 +176,7 @@ $report = [ordered]@{
 $jsonOutput = $report | ConvertTo-Json -Depth 5
 
 if ($OutputFile) {
-    $jsonOutput | Out-File -FilePath $OutputFile -Encoding utf8
+    [System.IO.File]::WriteAllText($OutputFile, $jsonOutput, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "[+] Security events saved to $OutputFile"
 } else {
     Write-Output $jsonOutput

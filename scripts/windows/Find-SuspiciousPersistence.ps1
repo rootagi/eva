@@ -16,7 +16,7 @@ param(
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
-$hostname = $env:COMPUTERNAME
+$hostname = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { [Environment]::MachineName }
 $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $findings = @()
 $persistenceItems = @()
@@ -87,6 +87,7 @@ try {
     foreach ($c in $consumers) {
         $cName = $c.Name
         $persistenceItems += @{ category = "WMIEventConsumer"; name = $cName; type = $c.CimClass.CimClassName }
+        if ($cName -eq "SCM Event Log Consumer") { continue }
         $findings += @{
             id = "triage-win-wmi-consumer-$cName"
             tool = "triage-windows-persistence"
@@ -131,7 +132,7 @@ $report = [ordered]@{
 
 $jsonOutput = $report | ConvertTo-Json -Depth 5
 if ($OutputFile) {
-    $jsonOutput | Out-File -FilePath $OutputFile -Encoding utf8
+    [System.IO.File]::WriteAllText($OutputFile, $jsonOutput, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "[+] Persistence report saved to $OutputFile"
 } else {
     Write-Output $jsonOutput

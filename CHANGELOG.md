@@ -5,7 +5,34 @@ All notable changes to Eva CLI will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
 
+### Added
+- **Expanded Cross-Platform Endpoint Triage Suite (`scripts/`):**
+  - **Linux POSIX shell collectors:** `incident_response.sh` (volatile first-responder snapshot), `audit_accounts.sh` (identity/privilege audit), `analyze_logs.sh` (auth/web log correlation), `detect_rootkits.sh` (loader, module, process, and package-integrity checks), `hunt_suspicious_files.sh` (webshell/content/metadata hunting), `network_forensics.sh` (interfaces, connections, firewall, socket ownership), `package_integrity.sh` (`dpkg`/`rpm`/`apk` verification), `cloud_metadata.sh` (link-local AWS/GCP/Azure identity), and `container_triage.sh` (Docker/Podman/containerd/Kubernetes exposure).
+  - **Windows PowerShell collectors:** 16 scripts covering host inventory, hardening, accounts, security events, persistence, autoruns, credentials, log forensics, Defender configuration, process/network/incident response, webshells, cloud metadata, and containers.
+  - All 30 collectors emit standalone `eva.triage.v1` JSON with severities, confidence, remediation guidance, and deduplication fingerprints; Linux scripts use private temporary directories and cleanup traps, and Windows scripts degrade gracefully when cmdlets or privileges are unavailable.
+- **Triage Orchestration, Validation & Evidence Tooling (`scripts/`):**
+  - `triage_orchestrator.py`: discovers and runs collectors, enforces per-script timeouts, aggregates findings and severity counts, writes `findings.jsonl` plus JSON/Markdown summaries, and supports `--fail-on` CI thresholds.
+  - `validate_triage.py`: standalone `eva.triage.v1` schema and finding validator with strict mode and JSON output.
+  - `evidence_bundle.py`: creates and verifies tar-based `eva.evidence.v1` bundles with per-file SHA-256 manifests, detached sidecars, case metadata, chain-of-custody records, and tamper/path-traversal detection. Bundles are explicitly reported as unencrypted.
+- **Documentation & Testing:**
+  - Added `scripts/README.md` with the full collector inventory, parameters, safety model, orchestration, validation, evidence-bundle, and static-check workflows.
+  - Extended `scripts/test_vm_matrix.py` to exercise all 14 Linux collectors plus orchestrator, validator, evidence-bundle creation/verification, tamper detection, and Eva Sec ingestion/reporting.
+  - Validated all 16 Windows collectors on Windows 10 22H2 with Windows PowerShell 5.1 and Microsoft Defender enabled; every report passed `validate_triage.py` and ingested successfully.
+
+### Changed
+- Rootkit and package-integrity scans now ignore `dpkg --verify` records caused by `Permission denied` instead of reporting them as modified package files.
+- Windows collectors now fall back to `[Environment]::MachineName` when `COMPUTERNAME` is unavailable, so non-Windows fallback reports retain a valid host identity.
+- Windows collectors now write UTF-8 JSON without a BOM, and `eva sec ingest` also tolerates BOM-prefixed reports from older PowerShell output.
+- Orchestrator `--list` descriptions now skip shebang lines and use the first substantive comment block.
+- Updated `docs/eva-sec.md` and `README.md` with the expanded endpoint triage suite and tooling examples.
+
+### Fixed
+- Windows collectors no longer flag their own `powershell.exe -ExecutionPolicy Bypass -File` invocation as suspicious process activity.
+- Reduced Windows false positives for Microsoft Defender and OneDrive paths, Microsoft BITS update jobs, the built-in `SCM Event Log Consumer` WMI subscription, Defender servicing-stack events, OpenSSH explicit-credential events, and autologon configurations without a stored `DefaultPassword`.
+- Defender event 5007 configuration changes are now aggregated instead of emitting one finding per update event, and per-object 4907 audit events are no longer treated as audit-policy changes.
+- Adjusted IOC regexes and output handling to avoid Microsoft Defender/AMSI quarantine of the defensive collectors while preserving detection coverage.
 
 ## [4.4.1] - 2026-10-03
 

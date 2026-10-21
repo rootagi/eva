@@ -68,7 +68,8 @@ The design goal is practical: keep routine terminal work fast and local, "Can't 
   - Static binary analysis for Windows PE32/PE32+ and Linux ELF (mitigations: ASLR, DEP/NX, Stack Canary, RELRO, PIE, $W \oplus X$ violations).
   - Shannon block entropy calculation and sliding window analysis for packed/encrypted code detection.
   - Threat intelligence enrichment: live NIST NVD API v2 queries, multi-feed IOC lookups with RFC 1918 internal IP leak protection, and unstructured log IOC extraction.
-  - Cross-platform endpoint triage scripts (Windows PowerShell and Linux POSIX shell) with unified finding normalization and SARIF 2.1.0 reporting.
+  - Cross-platform endpoint triage suite: 30 read-only Linux/POSIX shell and Windows PowerShell collectors covering incident response, rootkits, persistence, accounts, logs, network, cloud metadata, containers, webshells, Defender, and package integrity, with unified finding normalization and SARIF 2.1.0 reporting.
+  - Triage orchestration, schema validation, and tamper-evident evidence bundling via stdlib-only Python utilities (`scripts/triage_orchestrator.py`, `scripts/validate_triage.py`, `scripts/evidence_bundle.py`).
 - Fine-grained security tuning: path-aware secret redaction, configurable Shannon entropy thresholds, and sensitive file allowlists (`eva config allow-sensitive-file`).
 - Health checks through `eva config doctor` and `eva sec doctor`.
 - Persistent chat sessions with `eva chat --session`.
@@ -282,7 +283,21 @@ eva sec intel extract /var/log/auth.log
 
 # Normalize and ingest cross-platform endpoint triage findings
 eva sec ingest /tmp/audit_hardening.json --format markdown --format sarif
+
+# Discover and run all Linux collectors, then validate the generated reports
+python3 scripts/triage_orchestrator.py --list
+python3 scripts/triage_orchestrator.py --output .eva/triage/run-01 --exclude-slow
+python3 scripts/validate_triage.py .eva/triage/run-01 --strict
+
+# Create a tamper-evident (unencrypted) evidence bundle
+python3 scripts/evidence_bundle.py create .eva/triage/run-01 \
+  --case-id CASE-2026-001 --examiner "A. Analyst" \
+  --output evidence/CASE-2026-001.tar.gz
+python3 scripts/evidence_bundle.py verify evidence/CASE-2026-001.tar.gz
 ```
+
+See [`scripts/README.md`](scripts/README.md) for the full collector inventory,
+parameters, and safety model.
 
 ## Command reference
 
@@ -460,6 +475,7 @@ Run the same checks in CI by pushing to a branch or opening a pull request. See 
 ## Project files
 
 - [`docs`](docs) — documentation suite ([eva-cli.vercel.app/docs](https://eva-cli.vercel.app/docs)).
+- [`scripts`](scripts) — endpoint triage collectors and triage tooling ([README](scripts/README.md)).
 - [`pyproject.toml`](pyproject.toml) — package metadata, dependencies, and tooling.
 - [`CHANGELOG.md`](CHANGELOG.md) — release history.
 - [`LICENSE`](LICENSE) — MIT license.
