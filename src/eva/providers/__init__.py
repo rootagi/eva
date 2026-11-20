@@ -1,9 +1,25 @@
 import logging
 import time
 from collections.abc import Iterator
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 
 from eva.config import AppConfig
+from eva.providers.retry import (
+    RetryingStream as RetryingStream,
+)
+from eva.providers.retry import (
+    extract_retry_after as extract_retry_after,
+)
+from eva.providers.retry import (
+    is_transient_provider_error as is_transient_provider_error,
+)
+from eva.providers.retry import (
+    retry_provider_call as retry_provider_call,
+)
+from eva.providers.retry import (
+    wait_retry_after_or_exponential as wait_retry_after_or_exponential,
+)
 from eva.security.redaction import redact_secrets
 from eva.telemetry.metrics import record_provider_metric
 
@@ -24,10 +40,6 @@ class AuthError(Exception):
 
 class QuotaExhaustedError(Exception):
     pass
-
-
-from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
@@ -110,20 +122,30 @@ def get_tool_capable_providers() -> list[str]:
     return [name for name, p in _PROVIDERS.items() if getattr(p, "supports_tools", False) is True]
 
 
-def get_context_budget(provider_name: str, config: AppConfig) -> int:
-    """Return effective max context tokens for provider: config > provider class default > 4000."""
-    if config and hasattr(config, "providers"):
-        provider_cfg = config.providers.get(provider_name)
-        if provider_cfg:
-            cfg_budget = getattr(provider_cfg, "max_context_tokens", None)
-            if isinstance(cfg_budget, int) and cfg_budget > 0:
-                return cfg_budget
+def get_context_budget(provider_name: str | None, config: AppConfig | None) -> int:
+    """Return effective max context tokens with strict precedence:
+    config.general.context_token_limit > provider_cfg.max_context_tokens > provider.max_context_tokens > 4000.
+    """
+    if config is not None:
+        general = getattr(config, "general", None)
+        if general is not None:
+            limit = getattr(general, "context_token_limit", None)
+            if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
+                return limit
 
-    provider = get_provider(provider_name)
-    if provider is not None:
-        budget = getattr(provider, "max_context_tokens", None)
-        if isinstance(budget, int) and budget > 0:
-            return budget
+        if provider_name and hasattr(config, "providers") and config.providers:
+            provider_cfg = config.providers.get(provider_name)
+            if provider_cfg is not None:
+                cfg_budget = getattr(provider_cfg, "max_context_tokens", None)
+                if isinstance(cfg_budget, int) and not isinstance(cfg_budget, bool) and cfg_budget > 0:
+                    return cfg_budget
+
+    if provider_name:
+        provider = get_provider(provider_name)
+        if provider is not None:
+            budget = getattr(provider, "max_context_tokens", None)
+            if isinstance(budget, int) and not isinstance(budget, bool) and budget > 0:
+                return budget
 
     return DEFAULT_CONTEXT_BUDGET
 
@@ -140,6 +162,21 @@ def _resolve_provider_name(config: AppConfig, pinned_provider: str | None = None
     return config.general.default_provider
 
 
+def resolve_effective_model(provider_name: str, config: AppConfig) -> str:
+    """Resolve the active model for a provider matching runtime resolution."""
+    provider = get_provider(provider_name)
+    provider_cfg = config.providers.get(provider_name) if (config and hasattr(config, "providers")) else None
+    configured_model = provider_cfg.model if provider_cfg else getattr(provider, "default_model", None)
+
+    if provider is not None and hasattr(provider, "_resolve_model") and configured_model:
+        return provider._resolve_model(configured_model)
+    if configured_model:
+        return configured_model
+    if provider_name == "gemini":
+        return "gemini-3-flash"
+    return "default"
+
+
 def dispatch(
     system_prompt: str,
     user_prompt: str,
@@ -151,35 +188,49 @@ def dispatch(
     from eva.cache import generate_cache_key, get_cached_response, set_cached_response
     from eva.ui.formatter import is_ai_error
 
-    # Determine the provider name for the cache key
+    # Determine the provider name and effective model for the cache key
     provider_name = _resolve_provider_name(config, pinned_provider)
+    effective_model = resolve_effective_model(provider_name, config)
+    cache_identity = f"{provider_name}:{effective_model}"
 
     # Check cache before calling the provider
-    cache_key = generate_cache_key(provider_name, system_prompt, user_prompt, context) if use_cache else None
+    cache_key = generate_cache_key(cache_identity, system_prompt, user_prompt, context) if use_cache else None
     if use_cache and cache_key:
         cached = get_cached_response(cache_key)
         if cached is not None:
-            logger.debug("Cache hit for provider %s", provider_name)
+            logger.debug("Cache hit for provider %s model %s", provider_name, effective_model)
             yield cached
             return
 
     # Delegate to the uncached dispatch and collect the full response
     chunks: list[str] = []
-    for chunk in _dispatch_uncached(system_prompt, user_prompt, context, config, pinned_provider):
+    dispatched_info: dict[str, str] = {}
+    for chunk in _dispatch_uncached(
+        system_prompt, user_prompt, context, config, pinned_provider, out_info=dispatched_info
+    ):
         chunks.append(chunk)
         yield chunk
 
-    # Cache the result if caching is enabled and the response is not an error
-    if use_cache and cache_key:
+    # Cache the result under the provider and model actually used
+    if use_cache:
         full_response = "".join(chunks)
         if not is_ai_error(full_response):
-            set_cached_response(cache_key, full_response)
+            actual_provider = dispatched_info.get("provider", provider_name)
+            actual_model = resolve_effective_model(actual_provider, config)
+            actual_identity = f"{actual_provider}:{actual_model}"
+            actual_key = generate_cache_key(actual_identity, system_prompt, user_prompt, context)
+            set_cached_response(actual_key, full_response)
         else:
             logger.debug("Skipping cache for error response")
 
 
 def _dispatch_uncached(
-    system_prompt: str, user_prompt: str, context: str, config: AppConfig, pinned_provider: str | None = None
+    system_prompt: str,
+    user_prompt: str,
+    context: str,
+    config: AppConfig,
+    pinned_provider: str | None = None,
+    out_info: dict[str, str] | None = None,
 ) -> Iterator[str]:
     if pinned_provider:
         provider = get_provider(pinned_provider)
@@ -189,7 +240,12 @@ def _dispatch_uncached(
 
         try:
             logger.debug("Dispatching to pinned provider %s", pinned_provider)
-            yield from call_provider(provider, system_prompt, user_prompt, context, config)
+            yielded_any = False
+            for chunk in call_provider(provider, system_prompt, user_prompt, context, config):
+                yielded_any = True
+                yield chunk
+            if out_info is not None and yielded_any:
+                out_info["provider"] = pinned_provider
         except QuotaExhaustedError as e:
             logger.warning("Pinned provider %s exhausted: %s", pinned_provider, e)
             yield f"\n[Eva Error] {e!s}"
@@ -220,6 +276,8 @@ def _dispatch_uncached(
             for chunk in call_provider(provider, system_prompt, user_prompt, context, config):
                 yielded_any = True
                 yield chunk
+            if out_info is not None and yielded_any:
+                out_info["provider"] = p_name
             return  # Success
         except QuotaExhaustedError as e:
             if yielded_any:
@@ -262,7 +320,10 @@ def call_provider(
     safe_context = redact_secrets(context)
     start_t = time.time()
     try:
-        yield from provider.generate_stream(system_prompt, safe_user_prompt, safe_context, config)
+        retrying_stream = RetryingStream(
+            provider.generate_stream, system_prompt, safe_user_prompt, safe_context, config
+        )
+        yield from retrying_stream
         duration = time.time() - start_t
         record_provider_metric(provider.name, duration, True, config=config)
     except Exception as exc:

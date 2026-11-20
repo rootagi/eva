@@ -5,11 +5,29 @@ import logging
 
 import typer
 
-from eva.plugins.protocol import EvaPlugin
+from eva.plugins.protocol import EvaPlugin, WorkflowHooks
 
 logger = logging.getLogger(__name__)
 
 ENTRY_POINT_GROUP = "eva.plugins"
+
+_WORKFLOW_HOOKS: list[WorkflowHooks] = []
+
+
+def register_workflow_hook(hook: WorkflowHooks) -> None:
+    """Register an observer hook instance."""
+    if hook not in _WORKFLOW_HOOKS:
+        _WORKFLOW_HOOKS.append(hook)
+
+
+def get_workflow_hooks() -> list[WorkflowHooks]:
+    """Return a list of all currently registered workflow observer hooks."""
+    return list(_WORKFLOW_HOOKS)
+
+
+def clear_workflow_hooks() -> None:
+    """Clear registered workflow hooks (useful for testing isolation)."""
+    _WORKFLOW_HOOKS.clear()
 
 
 def discover_entry_points():
@@ -88,7 +106,15 @@ def load_plugins(app: typer.Typer) -> list[EvaPlugin]:
 
             # Check if subclass overrode register_workflow_hooks
             if type(plugin_instance).register_workflow_hooks != EvaPlugin.register_workflow_hooks:
-                plugin_instance.register_workflow_hooks()
+                hook_res = plugin_instance.register_workflow_hooks()
+                if hook_res is not None:
+                    if isinstance(hook_res, (list, tuple)):
+                        for h in hook_res:
+                            register_workflow_hook(h)
+                    else:
+                        register_workflow_hook(hook_res)
+            elif isinstance(plugin_instance, WorkflowHooks):
+                register_workflow_hook(plugin_instance)
 
             loaded_plugins.append(plugin_instance)
             logger.debug(

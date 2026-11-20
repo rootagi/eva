@@ -5,7 +5,43 @@ All notable changes to Eva CLI will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+
+
+## [5.0.0] - 2026-11-20
+
+### Security
+- feat(cache): prefix cache keys with `v2:` namespace and include resolved model identity to avoid cross-model cache collisions (WI-01)
+- feat(work): remove implicit sudo retry prompt, gate privilege escalation behind explicit `--allow-sudo` flag with allowlist validation, prohibited shell execution, replay logging, and distinct audit trails (WI-02)
+- feat(prompts): remove sudo generation instructions from `WORK_SYSTEM_PROMPT` (WI-02)
+- feat(fastwalk): prune `ALWAYS_IGNORED_DIRS` during traversal inception via Rust `filter_entry`, adding support for `extra_ignored_dirs` and `unignore_dirs` with traversal parity in Python fallback (WI-03)
+- feat(diff): enforce strict repository path containment for diff targets, deny sensitive file modifications, enforce authorized path scopes, reject symlinks/special files, and provide atomic multi-file patching with rollback (WI-04)
+- feat(gemini): support multi-turn structured tool calls with FunctionCall and FunctionResponse mapping for dict and ToolCall representations (WI-05)
+- feat(workflow): honor --provider flag in workflow engine, add WorkflowStep id and Step alias, propagate EVA_PROVIDER and EVA_DEFAULT_PROVIDER to subprocess environment, and record pinned_provider in audit logs (WI-06)
+- feat(sec): expand multi-file, directory, and glob ingest with canonical path traversal, seen_fingerprints deduplication, ingest-summary.json generation, and .jsonl support (WI-07)
+- feat(providers): implement tenacity-based capped jittered retries for transient provider errors (429, 5xx, timeouts), RetryingStream wrapper for streaming generators, and ensure single budget increment per operation (WI-08)
+- feat(agent): bounded file reading with start_line/end_line/max_bytes, ripgrep code search with Python regex fallback, and cumulative token budget tracking terminating on TOKEN_BUDGET_EXHAUSTED (WI-09)
+- feat(workspace): record persistent workspace history with deep secret redaction across interactive and AI commands, with reverse chronological activity display (WI-10)
+- feat(plugins): plugin workflow observer hooks (WorkflowHooks protocol) with isolated error handling and output secret redaction (WI-11)
+- feat(chat): interactive REPL (ChatSession) with readline history at ~/.config/eva/sessions/.history, multiline mode, dynamic context budgeting derived from get_context_budget, project context auto-loading from .eva/context.md (with --no-project-context flag), Fernet session transcript encryption at rest, and slash commands (/file, /tree, /model, /provider, /url, /web, /clear, /save, /multiline, /help, /exit, /quit) (WI-12)
+- feat(providers): centralized context budget resolution via get_context_budget with 4-level precedence matrix (config.general.context_token_limit > provider_cfg.max_context_tokens > provider.max_context_tokens > 4000) (WI-13)
+- feat(config): model discovery CLI (eva config models) with 1-hour TTL disk cache, lazy provider loading, --free-only, --refresh, and model validation in set-model with --force override (WI-14)
+- feat(audit): audit log verification CLI (eva config audit verify, eva config audit show) with AuditVerificationResult flexible unpacking (2-tuple and 3-tuple), broken index reporting, secret redaction, and non-zero exit on tampering (WI-15)
+- feat(sec): security triage orchestration and schema validation library modules (eva.security_tools.triage) with eva sec triage run and validate subcommands; tamper-evident authenticated evidence bundle module (eva.security_tools.bundle) with AES-256-GCM / PBKDF2 encrypted container (EVABUND1), .sha256 sidecars, and eva sec bundle create, verify, and list subcommands; preserve script compatibility wrappers (WI-16)
+- feat(packaging): partition heavy dependencies into optional extras (sec, sec-media, web-images, all) in pyproject.toml with lazy import guards and clean actionable install hints via missing_extra_exit (WI-17)
+- feat(yara): bounded YARA scanner with 10 MiB default max file size, ignored directory subtree pruning (.git, node_modules, etc.), symlink and special file skipping, scan deadline enforcement, and structured YaraScanResult statistics (WI-18)
+- feat(intel): concurrent modular threat intelligence client with bounded Semaphore(5), per-provider timeouts, 24h positive / 10m negative TTL caching, TokenBucket rate limiting, --offline mode, and IOC secret redaction (WI-19)
+- feat(budget): comprehensive token and cost accounting tracking input/output tokens, last model, and USD cost estimation using static MODEL_PRICING table with breakdowns in eva usage and eva budget show (WI-20)
+- feat(indexing): cross-language AST import extraction for TypeScript/JavaScript (ES import, CommonJS require), Go, Rust, and Python with relative internal path normalization, dependency graph scoring, and eva context init project context scaffolding (WI-21)
+- feat(budget): atomic JSON persistence with fsync, file-locking with bounded timeout and exponential backoff, and corrupted budget file quarantine with recovery (WI-22)
+- feat(web): terminal web search with SearXNG, local SQLite FTS5 web document indexing with BM25 ranking, SSRF-safe HTTP fetcher with HTML-to-Markdown conversion, multi-protocol terminal image renderer (Kitty, Sixel, iTerm2, half-block), and interactive terminal explorer CLI (eva web search/open/index/image/history/explore) (WI-23)
+- feat(grounding): web-grounded ask and investigation with --url and --web-id context injection in eva ask, --web tools flag in eva investigate, web_search and fetch_url agent tools, and /url /web slash commands in Chat REPL (WI-24)
+- feat(web): OSC 8 terminal hyperlink rendering for search results enabling full un-truncated URLs on Ctrl+Click
+- feat(web): `--browser` (`-b`) flag for `eva web open` to directly view articles in the system default browser
+- feat(web): `--format url` output option for `eva web search` to produce clean un-wrapped URL listings
+- feat(web): session-aware search result resolution allowing `eva web open <#>` and `eva web image <#>` to open target items directly from the user's latest search session
+- feat(web): RFC 6052 NAT64 IPv4-Embedded IPv6 address validation in SSRF protection and Wikimedia compliant User-Agent headers
+- feat(web): multi-port SearXNG endpoint discovery (8081, 8080) and resilient network exception handling
+- docs(web): document Kitty terminal requirement for native GPU pixel-perfect HD image rendering and system image viewer fallback (--view)
 
 ### Added
 - **Expanded Cross-Platform Endpoint Triage Suite (`scripts/`):**
@@ -29,6 +65,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `docs/eva-sec.md` and `README.md` with the expanded endpoint triage suite and tooling examples.
 
 ### Fixed
+- fix(web): automatically download live web pages and cache full markdown content when opening search-indexed documents that previously only contained snippets
+- fix(web): render markdown using `rich.markdown.Markdown` inside terminal reader panels to eliminate Rich markup parsing errors on links and square brackets
+- fix(web): include standard browser `User-Agent` headers in `SSRFSafeFetcher` to prevent documentation sites from blocking CLI requests
+- fix(agent): replace hardcoded 'line 1' check in OutputText.__contains__ with genuine line-aware and boundary-bounded token containment, and add __contains__ delegation on ToolResult
+- fix(workflow): record step_id in all audit log entries, redact secrets from workflow descriptions and step commands before dispatching observer hooks, and isolate SystemExit in plugin hook execution
+- fix(normalizers): guard normalize_aegis against non-dict payloads and non-list findings/anomalies, and prevent non-list findings from falling through to Aegis normalizer
+- fix(diff): reject in-repo symlinks and symlinked directory ancestors prior to path resolution in unified diff patch application (WI-04)
 - Windows collectors no longer flag their own `powershell.exe -ExecutionPolicy Bypass -File` invocation as suspicious process activity.
 - Reduced Windows false positives for Microsoft Defender and OneDrive paths, Microsoft BITS update jobs, the built-in `SCM Event Log Consumer` WMI subscription, Defender servicing-stack events, OpenSSH explicit-credential events, and autologon configurations without a stored `DefaultPassword`.
 - Defender event 5007 configuration changes are now aggregated instead of emitting one finding per update event, and per-object 4907 audit events are no longer treated as audit-policy changes.

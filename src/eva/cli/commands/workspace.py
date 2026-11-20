@@ -23,9 +23,19 @@ def _display_workspace_summary(ws):
 
     if ws.history:
         console.print(f"[bold magenta]Recent Activity ({len(ws.history)} items):[/bold magenta]")
-        for h in ws.history[-5:]:
+        for h in reversed(ws.history[-10:]):
             ts = h.get("timestamp", "")[:19].replace("T", " ")
-            console.print(f"  [{ts}] ({h.get('type')}) {h.get('content')}")
+            entry_type = h.get("entry_type") or h.get("type", "general")
+            content = h.get("content", "")
+            if isinstance(content, dict):
+                import json
+
+                content_str = json.dumps(content)
+            else:
+                content_str = str(content)
+            if len(content_str) > 80:
+                content_str = content_str[:77] + "..."
+            console.print(f"  [{ts}] ({entry_type}) {content_str}")
         console.print()
 
 

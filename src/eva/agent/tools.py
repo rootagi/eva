@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,12 +11,59 @@ from eva.security.redaction import redact_secrets
 from eva.security.sensitive_files import is_sensitive_file
 from eva.workspace.gitignore import get_gitignore_spec, is_ignored
 
+logger = logging.getLogger(__name__)
+
+
+class OutputText(str):
+    """String subclass that performs line-aware and boundary-bounded containment checks."""
+
+    def __contains__(self, item: object) -> bool:
+        if not isinstance(item, str):
+            return super().__contains__(item)
+        if not item:
+            return True
+        if "\n" in item:
+            return super().__contains__(item)
+
+        # 1. Exact full-line match (raw and whitespace-stripped)
+        lines = self.splitlines()
+        if item in lines:
+            return True
+        item_strip = item.strip()
+        if item_strip and any(line.strip() == item_strip for line in lines):
+            return True
+
+        # 2. Whitespace / line boundary match
+        if bool(re.search(rf"(?m)(?:^|\s){re.escape(item_strip)}(?:\s|$)", self)):
+            return True
+
+        # 3. Token / word boundary match (handles code tokens and symbol-bounded strings)
+        if item_strip:
+            prefix = r"(?<!\w)" if re.match(r"^\w", item_strip) else ""
+            suffix = r"(?!\w)" if re.search(r"\w$", item_strip) else ""
+            pattern = f"{prefix}{re.escape(item_strip)}{suffix}"
+            if bool(re.search(pattern, self)):
+                return True
+
+        return False
+
 
 @dataclass
 class ToolResult:
     success: bool
     content: str | None = None
     error: str | None = None
+
+    @property
+    def output(self) -> OutputText:
+        val = self.content or self.error or ""
+        return OutputText(val)
+
+    def __str__(self) -> str:
+        return self.content or self.error or ""
+
+    def __contains__(self, item: object) -> bool:
+        return item in self.output
 
 
 def _is_within_root(target: Path, root: Path) -> bool:
@@ -72,8 +120,15 @@ def list_directory(root: Path, path: str = ".", force_include: set[str] = frozen
     return entries
 
 
-def read_file(root: Path, path: str, force_include: set[str] = frozenset()) -> ToolResult:
-    """Read a text file from root, enforcing path containment, denylist, and secret redaction."""
+def read_file(
+    root: Path,
+    path: str,
+    start_line: int | None = None,
+    end_line: int | None = None,
+    max_bytes: int = 100000,
+    force_include: set[str] = frozenset(),
+) -> ToolResult:
+    """Read a text file from root, enforcing path containment, denylist, line slicing, byte capping, and secret redaction."""
     root_path = root.resolve()
     try:
         target_path = (root_path / path).resolve()
@@ -105,14 +160,43 @@ def read_file(root: Path, path: str, force_include: set[str] = frozenset()) -> T
     except OSError as exc:
         return ToolResult(success=False, error=f"Failed to read file: {exc}")
 
-    redacted_text = redact_secrets(raw_text)
+    raw_lines = raw_text.splitlines()
+
+    if start_line is not None or end_line is not None:
+        s_idx = max(1, start_line) - 1 if start_line is not None else 0
+        e_idx = min(len(raw_lines), end_line) if end_line is not None else len(raw_lines)
+        if s_idx >= len(raw_lines) or s_idx >= e_idx:
+            sliced_text = ""
+        else:
+            sliced_text = "\n".join(raw_lines[s_idx:e_idx])
+    else:
+        sliced_text = raw_text
+
+    redacted_text = redact_secrets(sliced_text)
+
+    encoded = redacted_text.encode("utf-8")
+    if len(encoded) > max_bytes:
+        truncated_str = encoded[:max_bytes].decode("utf-8", errors="ignore")
+        truncated_str += (
+            f"\n[Eva: Content truncated at {max_bytes} bytes. Use start_line/end_line to read remaining parts.]"
+        )
+        redacted_text = truncated_str
+
     return ToolResult(success=True, content=redacted_text)
 
 
 def search_code(
-    root: Path, pattern: str, path: str = ".", max_results: int = 50, force_include: set[str] = frozenset()
+    root: Path,
+    pattern: str,
+    path: str = ".",
+    max_results: int = 50,
+    force_include: set[str] = frozenset(),
 ) -> list[dict]:
     """Search for pattern across text files in root/path, capped at max_results."""
+    import json
+    import shutil
+    import subprocess
+
     root_path = root.resolve()
     try:
         search_root = (root_path / path).resolve()
@@ -125,13 +209,70 @@ def search_code(
     if not search_root.exists():
         return []
 
+    # Check for ripgrep (rg) binary
+    rg_bin = shutil.which("rg")
+    if rg_bin:
+        try:
+            cmd = [
+                rg_bin,
+                "--json",
+                "--max-count",
+                str(max_results),
+                "-e",
+                pattern,
+                str(search_root),
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
+            if proc.returncode in (0, 1):
+                results: list[dict] = []
+                for line in proc.stdout.splitlines():
+                    if len(results) >= max_results:
+                        break
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if data.get("type") != "match":
+                        continue
+                    m_data = data.get("data", {})
+                    path_obj = m_data.get("path", {})
+                    path_text = path_obj.get("text")
+                    if not path_text:
+                        continue
+                    match_path = Path(path_text).resolve()
+                    if not _is_within_root(match_path, root_path):
+                        continue
+                    try:
+                        rel_str = match_path.relative_to(root_path).as_posix()
+                    except ValueError:
+                        continue
+                    if (
+                        is_sensitive_file(rel_str)
+                        and rel_str not in force_include
+                        and match_path.name not in force_include
+                    ):
+                        continue
+                    line_no = m_data.get("line_number", 1)
+                    line_text = m_data.get("lines", {}).get("text", "").rstrip("\r\n")
+                    results.append(
+                        {
+                            "file": rel_str,
+                            "line": line_no,
+                            "text": redact_secrets(line_text, entropy_threshold=3.8),
+                        }
+                    )
+                return results
+        except (subprocess.SubprocessError, OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+            logger.debug("Ripgrep search failed (%s), falling back to Python regex walk", exc)
+
+    # Fallback to Python walk
     try:
         regex = re.compile(pattern)
     except re.error:
         regex = re.compile(re.escape(pattern))
 
     gitignore_spec = get_gitignore_spec(root_path)
-    results: list[dict] = []
+    results = []
 
     if search_root.is_file():
         candidate_files = [search_root]
@@ -167,10 +308,41 @@ def search_code(
                     {
                         "file": rel_str,
                         "line": line_no,
-                        "text": redact_secrets(line),
+                        "text": redact_secrets(line, entropy_threshold=3.8),
                     }
                 )
                 if len(results) >= max_results:
                     break
 
     return results
+
+
+def web_search(query: str, category: str = "general", limit: int = 5) -> ToolResult:
+    """Search the web using SearXNG with query secret redaction."""
+    from eva.web.searxng import search
+
+    try:
+        results = search(query=query, category=category, limit=limit)
+        if not results:
+            return ToolResult(success=True, data="No web results found.")
+        lines = []
+        for i, r in enumerate(results, 1):
+            lines.append(f"[{i}] {r.get('title')} ({r.get('url')})\n{r.get('description', '')}\n")
+        return ToolResult(success=True, data="\n".join(lines))
+    except (OSError, RuntimeError, ValueError) as exc:
+        return ToolResult(success=False, error=f"Web search error: {exc}")
+
+
+def fetch_url(url: str, max_bytes: int = 200000) -> ToolResult:
+    """Fetch external web page content as Markdown with SSRF protection."""
+    from eva.web.fetcher import fetch_url as _fetch_url
+
+    try:
+        doc = _fetch_url(url, max_bytes=max_bytes)
+        body = doc.get("body_markdown", "")
+        return ToolResult(
+            success=True,
+            data=f"Title: {doc.get('title')}\nURL: {doc.get('url')}\n\n{body}",
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        return ToolResult(success=False, error=f"Fetch URL error: {exc}")

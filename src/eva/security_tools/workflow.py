@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import glob
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -149,13 +151,149 @@ def run_security_workflow(
     return findings, context
 
 
-def ingest_report(
-    path: Path | str, *, artifacts_dir: Path | str = ".eva/artifacts"
-) -> tuple[list[Finding], RunContext]:
+SUPPORTED_REPORT_EXTENSIONS = {".json", ".sarif", ".jsonl"}
+ALWAYS_IGNORED_DIRS = {
+    ".git",
+    ".eva",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "target",
+    "dist",
+    "build",
+}
+
+
+def expand_report_paths(
+    patterns: Sequence[Path | str] | Path | str,
+    *,
+    keep_going: bool = False,
+) -> list[Path]:
+    """Expand file paths, directories, and glob patterns into a deduplicated, sorted list of report files."""
+    if isinstance(patterns, (str, Path)):
+        pattern_list = [str(patterns)]
+    else:
+        pattern_list = [str(p) for p in patterns]
+
+    resolved_files: set[Path] = set()
+
+    for pat in pattern_list:
+        p = Path(pat)
+
+        # 1. Exact existing directory -> recursive search
+        if p.is_dir():
+            for child in p.rglob("*"):
+                if any(part in ALWAYS_IGNORED_DIRS for part in child.parts):
+                    continue
+                if child.is_file() and child.suffix.lower() in SUPPORTED_REPORT_EXTENSIONS:
+                    resolved_files.add(child.resolve())
+            continue
+
+        # 2. Exact existing file
+        if p.is_file():
+            resolved_files.add(p.resolve())
+            continue
+
+        # 3. Glob pattern expansion
+        matched = glob.glob(pat, recursive=True)
+        if matched:
+            for m in matched:
+                mp = Path(m)
+                if mp.is_file():
+                    if mp.suffix.lower() in SUPPORTED_REPORT_EXTENSIONS or not glob.has_magic(pat):
+                        resolved_files.add(mp.resolve())
+                elif mp.is_dir():
+                    for child in mp.rglob("*"):
+                        if any(part in ALWAYS_IGNORED_DIRS for part in child.parts):
+                            continue
+                        if child.is_file() and child.suffix.lower() in SUPPORTED_REPORT_EXTENSIONS:
+                            resolved_files.add(child.resolve())
+        else:
+            if not keep_going:
+                raise FileNotFoundError(f"Report path or pattern not found: {pat}")
+
+    sorted_paths = sorted(resolved_files, key=lambda x: str(x))
+    if not sorted_paths and not keep_going:
+        raise FileNotFoundError(f"No valid security reports found in patterns: {pattern_list}")
+    return sorted_paths
+
+
+def ingest_reports(
+    reports: Sequence[Path | str] | Path | str,
+    *,
+    artifacts_dir: Path | str = ".eva/artifacts",
+    keep_going: bool = False,
+) -> tuple[list[Finding], RunContext, dict[str, Any]]:
+    resolved_paths = expand_report_paths(reports, keep_going=keep_going)
     run_id = new_run_id("ingest")
     run_dir = ensure_run_dir(Path(artifacts_dir), run_id)
-    findings = normalize_report(path)
-    context = RunContext(run_id=run_id, root=Path.cwd(), artifacts_dir=Path(artifacts_dir), run_dir=run_dir)
-    context.artifacts.append(artifact_record(path, "input-report"))
-    write_reports(findings, run_dir, ["json", "markdown", "sarif"])
+    context = RunContext(
+        run_id=run_id,
+        root=Path.cwd(),
+        artifacts_dir=Path(artifacts_dir),
+        run_dir=run_dir,
+    )
+
+    seen_fingerprints: dict[str, Finding] = {}
+    unique_findings: list[Finding] = []
+    per_file_counts: dict[str, int] = {}
+    finding_sources: dict[str, list[str]] = {}
+    failed_files: dict[str, str] = {}
+
+    for file_path in resolved_paths:
+        try:
+            file_findings = normalize_report(file_path)
+            per_file_counts[str(file_path)] = len(file_findings)
+            context.artifacts.append(artifact_record(file_path, "input-report"))
+
+            for finding in file_findings:
+                fp = finding.fingerprint
+                if fp not in seen_fingerprints:
+                    seen_fingerprints[fp] = finding
+                    unique_findings.append(finding)
+                    finding_sources[fp] = [str(file_path)]
+                else:
+                    existing = seen_fingerprints[fp]
+                    finding_sources[fp].append(str(file_path))
+                    # Merge unique references
+                    for ref in finding.references:
+                        if ref and ref not in existing.references:
+                            existing.references.append(ref)
+        except Exception as err:
+            failed_files[str(file_path)] = str(err)
+            if not keep_going:
+                raise
+
+    if not unique_findings and failed_files and not keep_going:
+        raise ValueError(f"Failed to ingest reports: {failed_files}")
+
+    total_raw = sum(per_file_counts.values())
+    total_duplicates = total_raw - len(unique_findings)
+
+    write_reports(unique_findings, run_dir, ["json", "markdown", "sarif"])
+
+    summary_stats = {
+        "run_id": run_id,
+        "input_files": [str(p) for p in resolved_paths],
+        "per_file_counts": per_file_counts,
+        "total_raw_findings": total_raw,
+        "total_unique_findings": len(unique_findings),
+        "total_duplicates": total_duplicates,
+        "failed_files": failed_files,
+        "finding_sources": finding_sources,
+    }
+    write_json_artifact(run_dir / "ingest-summary.json", summary_stats, "ingest-summary")
+
+    return unique_findings, context, summary_stats
+
+
+def ingest_report(
+    path: Path | str | Sequence[Path | str],
+    *,
+    artifacts_dir: Path | str = ".eva/artifacts",
+    keep_going: bool = False,
+) -> tuple[list[Finding], RunContext]:
+    """Backward-compatible single-report or multi-report ingestion returning (findings, context)."""
+    findings, context, _ = ingest_reports(path, artifacts_dir=artifacts_dir, keep_going=keep_going)
     return findings, context

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pathspec
 
@@ -61,7 +62,18 @@ def _module_name(relative_path: str) -> str | None:
     return ".".join(parts) or None
 
 
-def _dependency_scores(root: Path) -> dict[str, int]:
+def _dependency_scores(root_or_graph: Path | Any) -> dict[str, int]:
+    if hasattr(root_or_graph, "nodes") and isinstance(root_or_graph.nodes, dict):
+        graph = root_or_graph
+        scores: dict[str, int] = {node: 0 for node in graph.nodes}
+        for module_name, imports in graph.nodes.items():
+            if module_name not in scores:
+                scores[module_name] = 0
+            for imported_module in imports:
+                scores[imported_module] = scores.get(imported_module, 0) + 1
+        return scores
+
+    root = Path(root_or_graph)
     stack = detect_stack(root)
     if "Python" not in stack.languages:
         return {}

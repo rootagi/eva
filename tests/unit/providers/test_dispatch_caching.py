@@ -80,6 +80,66 @@ class TestDispatchCaching:
             assert "[Eva Error]" in result2
             assert call_count == 2
 
+    def test_dispatch_cache_diverges_across_models_under_same_provider(self):
+        """Switching models under the same provider must produce different cache keys and not return stale cache."""
+        config1 = _make_config()
+        config1.general.default_provider = "groq"
+        config1.providers["groq"].model = "llama-3.1-8b-instant"
+
+        config2 = _make_config()
+        config2.general.default_provider = "groq"
+        config2.providers["groq"].model = "llama-3.3-70b-versatile"
+
+        call_history: list[str] = []
+
+        def tracking_call_provider(provider, system_prompt, user_prompt, context, config):
+            call_history.append(config.providers[provider.name].model)
+            yield f"answer-from-{config.providers[provider.name].model}"
+
+        with patch("eva.providers.call_provider", side_effect=tracking_call_provider):
+            res1 = "".join(dispatch("sys", "user", "ctx", config1, use_cache=True))
+            assert res1 == "answer-from-llama-3.1-8b-instant"
+            assert call_history == ["llama-3.1-8b-instant"]
+
+            # Same provider, different model: must NOT return cached answer from first model
+            res2 = "".join(dispatch("sys", "user", "ctx", config2, use_cache=True))
+            assert res2 == "answer-from-llama-3.3-70b-versatile"
+            assert call_history == ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
+
+            # Same provider, same model: hits cache
+            res3 = "".join(dispatch("sys", "user", "ctx", config1, use_cache=True))
+            assert res3 == "answer-from-llama-3.1-8b-instant"
+            assert len(call_history) == 2  # Cached, no new call
+
+    def test_dispatch_cache_fallback_cached_under_actual_provider(self):
+        """When fallback occurs, result is cached under the provider actually used, not the initial one."""
+        config = _make_config()
+        config.general.default_provider = "groq"
+        config.general.fallback_enabled = True
+        config.general.fallback_order = ["gemini"]
+
+        from eva.providers import QuotaExhaustedError
+
+        call_count = 0
+
+        def fallback_call_provider(provider, system_prompt, user_prompt, context, config):
+            nonlocal call_count
+            call_count += 1
+            if provider.name == "groq":
+                raise QuotaExhaustedError("Groq quota exceeded")
+            yield "fallback-gemini-answer"
+
+        with patch("eva.providers.call_provider", side_effect=fallback_call_provider):
+            res = "".join(dispatch("sys", "user", "ctx", config, use_cache=True))
+            assert res == "fallback-gemini-answer"
+            assert call_count == 2  # groq attempted then gemini
+
+            # Now pinned dispatch directly to gemini should hit the cache written by the fallback path
+            call_count_before = call_count
+            res_pinned = "".join(dispatch("sys", "user", "ctx", config, pinned_provider="gemini", use_cache=True))
+            assert res_pinned == "fallback-gemini-answer"
+            assert call_count == call_count_before  # Cache hit!
+
 
 class TestAskNoCacheFlag:
     """Test --no-cache flag on the ask CLI command."""

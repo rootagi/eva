@@ -4,14 +4,17 @@ __all__ = [
     "BLAST_RADIUS_PATTERNS",
     "DENYLIST_PATTERNS",
     "AllowlistViolationError",
+    "AuditVerificationResult",
     "CommandExtractionError",
     "ParsedCommand",
     "UnsafeCommandError",
     "append_command_audit",
+    "audit_log",
     "check_command_allowlist",
     "compute_entry_hash",
     "explain_safety_checks",
     "extract_single_command",
+    "get_audit_file",
     "get_command_audit_log",
     "get_sandboxed_env",
     "is_sensitive_file",
@@ -22,7 +25,10 @@ __all__ = [
 ]
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "AuditVerificationResult": ("eva.security.audit", "AuditVerificationResult"),
+    "audit_log": ("eva.security.audit", "audit_log"),
     "compute_entry_hash": ("eva.security.audit", "compute_entry_hash"),
+    "get_audit_file": ("eva.security.audit", "get_audit_file"),
     "verify_audit_chain": ("eva.security.audit", "verify_audit_chain"),
     "redact_secrets": ("eva.security.redaction", "redact_secrets"),
     "get_sandboxed_env": ("eva.security.sandbox", "get_sandboxed_env"),

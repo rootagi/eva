@@ -36,14 +36,23 @@ eva ask "List open issues" --format json
 
 # Bypass .eva/context.md project memory
 eva ask "What is the entry point?" --no-project-context
+
+# Web grounding: include external web page context (SSRF-protected)
+eva ask "How do I upgrade to the latest version?" --url https://docs.example.com/upgrade
+
+# Web grounding: include cached web document from local FTS5 database
+eva ask "Summarize this advisory" --web-id 1
 ```
 
 ### `eva investigate`
-Agentic, multi-turn, query-driven repository exploration (Codex/Claude Code-style). The LLM receives the question first and actively calls read-only tools (`list_directory`, `read_file`, `search_code`) to inspect relevant files before delivering a final answer.
+Agentic, multi-turn, query-driven repository exploration (Codex/Claude Code-style). The LLM receives the question first and actively calls read-only tools (`list_directory`, `read_file`, `search_code`, and optional web tools) to inspect relevant files before delivering a final answer.
 
 ```bash
 # Agentic repo investigation
 eva investigate "Find how CLI commands are registered and explain the app flow" . --yes
+
+# Enable web exploration tools during investigation
+eva investigate "Investigate this error with online documentation" . --web --yes
 
 # Custom turn cap and provider
 eva investigate "Trace where budget limits are checked" . --max-turns 10 --provider groq --yes
@@ -129,7 +138,93 @@ Display project memory loaded from `.eva/context.md` at the repository root.
 eva context show
 ```
 
+### `eva context init`
+Scaffold `.eva/context.md` project memory based on automatic codebase technology stack detection.
+
+```bash
+# Initialize context.md
+eva context init
+
+# Overwrite existing context.md
+eva context init --force
+```
+
 > **Note:** `.eva/context.md` is automatically loaded into prompt context for `eva ask` and `eva work` to provide project-specific conventions without needing manual `--file` flags.
+
+---
+
+## Web Search, Indexing & Terminal Visuals
+
+### `eva web`
+Metasearch through SearXNG, offline FTS5 document indexing, and terminal image rendering.
+
+#### Local SearXNG Setup (Docker)
+Eva queries SearXNG using `EVA_SEARXNG_URL`. To avoid public instance rate limits, run a local container:
+
+```bash
+# 1. Create settings.yml enabling JSON format
+mkdir -p ~/searxng && cd ~/searxng
+cat << 'EOF' > settings.yml
+use_default_settings: true
+server:
+  secret_key: "evasecretkey"
+  bind_address: "0.0.0.0"
+  port: 8080
+search:
+  formats:
+    - html
+    - json
+EOF
+
+# 2. Run container on port 8081
+docker run -d --name searxng --restart unless-stopped -p 8081:8080 \
+  -v ~/searxng/settings.yml:/etc/searxng/settings.yml:ro \
+  searxng/searxng:latest
+
+# 3. Configure Eva
+export EVA_SEARXNG_URL="http://127.0.0.1:8081"
+```
+
+#### CLI Examples
+
+```bash
+# Search the web (interactive OSC 8 clickable links)
+eva web search "CVE-2024-3094"
+
+# Print raw un-truncated URLs for easy copying
+eva web search "CVE-2024-3094" --format url
+
+# Search offline cached documents only
+eva web search "vulnerability" --offline
+
+# Open and read web page or indexed ID in terminal reader mode
+eva web open 1 --images
+
+# Open article directly in your system default web browser
+eva web open 1 --browser
+
+# Crawl and index website into local SQLite FTS5 database
+eva web index https://docs.example.com --depth 2 --max-pages 20
+
+# Render image directly in terminal (Kitty, Sixel, iTerm2, half-block)
+eva web image https://example.com/diagram.png --protocol auto
+
+# Search images and render in a 3x3 grid or terminal ratio collage
+eva web images "cybersecurity architecture" --cols 3 --limit 9
+
+# Open image search composite in native HD image viewer
+eva web images "cybersecurity architecture" --view
+
+# View recent browsing and indexing history
+eva web history
+
+# Interactive terminal SERP navigator
+eva web explore "Rust async concurrency"
+```
+
+> [!TIP]
+> **High-Definition (HD) Image Rendering in Terminal:**
+> To render images directly in high definition (HD) pixel graphics inside your terminal, use **[Kitty terminal](https://sw.kovidgoyal.net/kitty/)** (`TERM=xterm-kitty`), which utilizes the Kitty GPU graphics protocol. Sixel and iTerm2 protocols are also supported, with automatic fallback to Unicode TrueColor half-blocks on standard terminals. You can also pass `--view` (`-v`) on any image command to launch the full HD image in your system's native desktop image viewer.
 
 ---
 

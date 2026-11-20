@@ -3,9 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from elftools.common.exceptions import ELFError
-from elftools.elf.dynamic import DynamicSection
-from elftools.elf.elffile import ELFFile
+try:
+    from elftools.common.exceptions import ELFError
+    from elftools.elf.dynamic import DynamicSection
+    from elftools.elf.elffile import ELFFile
+except ImportError:
+    ELFError = Exception  # type: ignore
+    DynamicSection = None  # type: ignore
+    ELFFile = None  # type: ignore
 
 from eva.security_tools.models import Finding
 from eva.security_tools.normalizers import make_finding
@@ -19,6 +24,11 @@ def analyze_elf(file_path: Path | str, artifact_path: str | None = None) -> tupl
     path = Path(file_path).resolve()
     if not path.exists() or not path.is_file():
         raise FileNotFoundError(f"ELF file not found: {path}")
+
+    if ELFFile is None:
+        from eva.security_tools.deps import missing_extra_exit
+
+        missing_extra_exit("sec", "ELF binary analysis")
 
     findings: list[Finding] = []
     metadata: dict[str, Any] = {

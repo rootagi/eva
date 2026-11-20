@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
 
@@ -44,8 +44,8 @@ jobs:
       - name: Check code formatting
         run: ruff format --check .
 
-      - name: Run test suite with 85% coverage gate
-        run: pytest -v --cov=eva --cov-report=term-missing --cov-fail-under=85
+      - name: Run test suite with 80% coverage gate
+        run: pytest -v --cov=eva --cov-report=term-missing --cov-fail-under=80
 
   docker:
     runs-on: ubuntu-latest

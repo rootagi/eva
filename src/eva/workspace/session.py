@@ -170,15 +170,129 @@ def add_bookmark(name: str, path_str: str):
         bm_file.write_text(json.dumps(bookmarks, indent=2), encoding="utf-8")
 
 
-def add_history(name: str, entry_type: str, content: str):
-    wdir = get_workspace_dir(name)
-    hist_file = wdir / "history.jsonl"
+def has_active_workspace() -> bool:
+    f = get_active_workspace_file()
+    if f.exists():
+        try:
+            name = f.read_text(encoding="utf-8").strip()
+            return bool(name)
+        except OSError:
+            return False
+    return False
 
-    record = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "type": entry_type,
-        "content": redact_secrets(content),
-    }
 
-    with open(hist_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+def _deep_redact(data: Any) -> Any:
+    """Recursively redact secrets from nested structures."""
+    if isinstance(data, str):
+        return redact_secrets(data)
+    elif isinstance(data, dict):
+        return {k: _deep_redact(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [_deep_redact(item) for item in data]
+    elif isinstance(data, tuple):
+        return tuple(_deep_redact(item) for item in data)
+    return data
+
+
+MAX_HISTORY_ENTRIES = 2000
+
+
+def _prune_history_if_needed(hist_file: Path, max_entries: int = MAX_HISTORY_ENTRIES) -> None:
+    if not hist_file.exists():
+        return
+    try:
+        lines = hist_file.read_text(encoding="utf-8").splitlines()
+        if len(lines) > max_entries * 1.5:
+            kept = lines[-max_entries:]
+            hist_file.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    except OSError as exc:
+        logger.debug("Failed to prune workspace history: %s", exc)
+
+
+def add_history(
+    name: str | None = None,
+    entry_type: str = "general",
+    content: str | dict[str, Any] | Any = "",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Record an entry into workspace history with secret redaction.
+
+    If name matches an existing workspace directory, records to that workspace.
+    Otherwise, records to the active workspace with name stored as the entry name.
+    """
+    try:
+        root = get_workspaces_root()
+        if name and (root / sanitize_workspace_name(name) / "meta.json").exists():
+            target_ws = sanitize_workspace_name(name)
+            entry_name = name
+        else:
+            target_ws = get_active_workspace()
+            entry_name = name or entry_type
+
+        wdir = get_workspace_dir(target_ws)
+        hist_file = wdir / "history.jsonl"
+
+        record: dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "name": entry_name,
+            "type": entry_type,
+            "entry_type": entry_type,
+            "command": entry_type,
+            "content": _deep_redact(content),
+        }
+        if metadata is not None:
+            record["metadata"] = _deep_redact(metadata)
+
+        serialized = json.dumps(record) + "\n"
+        with open(hist_file, "a", encoding="utf-8") as f:
+            f.write(serialized)
+
+        _prune_history_if_needed(hist_file)
+    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+        logger.debug("Failed to record workspace history: %s", exc)
+
+
+def get_history(name: str | None = None) -> list[dict[str, Any]]:
+    """Get history entries for the specified workspace or active workspace."""
+    if name is not None:
+        safe_name = sanitize_workspace_name(name)
+        root = get_workspaces_root()
+        if (root / safe_name / "history.jsonl").exists():
+            return get_workspace(safe_name).history
+        # If no dedicated workspace history exists, check active workspace for matching entry name
+        active_history = get_workspace(get_active_workspace()).history
+        matching = [e for e in active_history if e.get("name") == name]
+        if matching:
+            return matching
+        return get_workspace(safe_name).history
+
+    ws_name = get_active_workspace()
+    ws = get_workspace(ws_name)
+    if not ws.history:
+        for other_name in list_workspaces():
+            if other_name != ws_name:
+                other_ws = get_workspace(other_name)
+                if other_ws.history:
+                    return other_ws.history
+    return ws.history
+
+
+def record_command_history(
+    entry_type: str,
+    summary: str | dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+    name: str | None = None,
+) -> None:
+    """Record command history if an active workspace is present, otherwise no-op."""
+    try:
+        if not has_active_workspace():
+            return
+        active = get_active_workspace()
+        add_history(
+            name=name or active,
+            entry_type=entry_type,
+            content=summary,
+            metadata=metadata,
+        )
+    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+        logger.debug("Failed to record command history: %s", exc)

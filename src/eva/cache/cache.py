@@ -138,15 +138,23 @@ def get_cache() -> Cache:
     return Cache(get_cache_dir())
 
 
-def generate_cache_key(model: str, system_prompt: str, user_prompt: str, context: str) -> str:
+def generate_cache_key(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    context: str,
+    namespace: str = "v2",
+) -> str:
     key_data = {
+        "namespace": namespace,
         "model": model,
         "system_prompt": system_prompt,
         "user_prompt": user_prompt,
         "context_hash": hashlib.sha256(context.encode("utf-8")).hexdigest() if context else "",
     }
     key_str = json.dumps(key_data, sort_keys=True)
-    return hashlib.sha256(key_str.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(key_str.encode("utf-8")).hexdigest()
+    return f"{namespace}:{digest}" if namespace else digest
 
 
 def get_cached_response(key: str) -> str | None:

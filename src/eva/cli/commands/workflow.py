@@ -18,14 +18,35 @@ def workflow_run_cmd(
 
     load_config = _resolve_app_attr("load_config", _load_config)
     config = load_config()
+
+    if provider:
+        from eva.providers import PROVIDER_MAP, get_provider
+
+        valid_providers = set(config.providers.keys()) | set(PROVIDER_MAP.keys())
+        if provider not in valid_providers and get_provider(provider) is None:
+            print_error(
+                f"Unknown or unsupported provider: '{provider}'. "
+                f"Available providers: {', '.join(sorted(valid_providers))}"
+            )
+            raise typer.Exit(1)
+
     try:
         wf = load_workflow(name)
     except (FileNotFoundError, ValueError) as exc:
         print_error(str(exc))
         raise typer.Exit(1) from exc
 
-    results = run_workflow(wf, config=config, interactive=not yes)
+    results = run_workflow(wf, config=config, interactive=not yes, pinned_provider=provider)
     failed = [r for r in results if r.get("status") in {"failed", "blocked_unsafe", "blocked_ambiguous"}]
+
+    from eva.workspace.session import record_command_history
+
+    record_command_history(
+        entry_type="workflow",
+        summary={"workflow": name, "status": "failed" if failed else "completed", "steps": len(results)},
+        metadata={"provider": provider},
+    )
+
     if failed:
         raise typer.Exit(1)
 

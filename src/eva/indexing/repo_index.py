@@ -2,6 +2,7 @@ import ast
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -38,8 +39,22 @@ class ProjectStack:
 
 
 @dataclass
-class DepGraph:
+class DependencyGraph:
     nodes: dict[str, list[str]] = field(default_factory=dict)
+
+    def add_node(self, node: str) -> None:
+        if node not in self.nodes:
+            self.nodes[node] = []
+
+    def add_edge(self, source: str, target: str) -> None:
+        self.add_node(source)
+        self.add_node(target)
+        if target not in self.nodes[source]:
+            self.nodes[source].append(target)
+
+    @property
+    def edges(self) -> dict[str, list[str]]:
+        return self.nodes
 
     def to_summary_string(self) -> str:
         if not self.nodes:
@@ -51,6 +66,10 @@ class DepGraph:
             else:
                 lines.append(f"  {mod} (no local imports)")
         return "\n".join(lines)
+
+
+# Backwards compatibility alias
+DepGraph = DependencyGraph
 
 
 def detect_stack(root_dir: str | Path) -> ProjectStack:
@@ -238,3 +257,145 @@ def build_dep_graph(root_dir: str | Path) -> DepGraph:
         graph.nodes[mod_name] = sorted(imports)
 
     return graph
+
+
+def extract_polyglot_imports(filename: str, content: str) -> list[str]:
+    """Extract raw module/file import identifiers from polyglot source code (TS/JS, Go, Rust, Python)."""
+    imports: list[str] = []
+    p = Path(filename)
+    ext = p.suffix.lower()
+
+    if ext in {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}:
+        # ES imports and exports: import ... from '...' or export ... from '...'
+        for match in re.finditer(r"""(?:import|export)\s+(?:[\w*\s{},$]+from\s+)?['"]([^'"]+)['"]""", content):
+            imports.append(match.group(1))
+        # CommonJS require: require('...')
+        for match in re.finditer(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""", content):
+            imports.append(match.group(1))
+        # Dynamic import: import('...')
+        for match in re.finditer(r"""import\s*\(\s*['"]([^'"]+)['"]\s*\)""", content):
+            imports.append(match.group(1))
+
+    elif ext == ".go":
+        # Multi-line import block: import ( ... )
+        for block in re.finditer(r"""import\s*\(\s*([^)]+)\)""", content, re.MULTILINE):
+            block_content = block.group(1)
+            for imp in re.finditer(r"""['"]([^'"]+)['"]""", block_content):
+                imports.append(imp.group(1))
+        # Single import: import "..."
+        for match in re.finditer(r"""import\s+['"]([^'"]+)['"]""", content):
+            imports.append(match.group(1))
+
+    elif ext == ".rs":
+        # Rust use: use ...;
+        for match in re.finditer(r"""use\s+([^;]+);""", content):
+            raw = match.group(1).strip()
+            imports.append(raw)
+        # Rust mod: mod ...;
+        for match in re.finditer(r"""mod\s+([a-zA-Z0-9_]+)\s*;""", content):
+            imports.append(match.group(1).strip())
+
+    elif ext == ".py":
+        try:
+            tree = ast.parse(content, filename=filename)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        imports.append(alias.name)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imports.append(node.module)
+        except (SyntaxError, ValueError, OSError):
+            for match in re.finditer(
+                r"""^\s*(?:from\s+([a-zA-Z0-9_.]+)\s+import|import\s+([a-zA-Z0-9_.,\s]+))""", content, re.MULTILINE
+            ):
+                mod = match.group(1) or match.group(2)
+                if mod:
+                    imports.append(mod.strip())
+
+    return sorted(dict.fromkeys(imports))
+
+
+def normalize_repo_imports(root: str | Path, file_path: str, raw_imports: list[str]) -> list[str]:
+    """Filter and normalize raw extracted imports to internal repository paths, excluding external packages."""
+    root_path = Path(root).resolve()
+    current_dir = (root_path / file_path).parent.resolve()
+    internal_deps: list[str] = []
+
+    for raw in raw_imports:
+        if raw.startswith("."):
+            # Relative import (e.g. ./util, ../service)
+            candidate_base = (current_dir / raw).resolve()
+            # Try extensions
+            resolved_file = None
+            if candidate_base.is_file():
+                resolved_file = candidate_base
+            else:
+                for ext in [".ts", ".tsx", ".js", ".jsx", ".d.ts", ".json"]:
+                    c = candidate_base.with_suffix(ext)
+                    if c.is_file():
+                        resolved_file = c
+                        break
+                if not resolved_file:
+                    for idx in ["index.ts", "index.tsx", "index.js", "index.jsx"]:
+                        c = candidate_base / idx
+                        if c.is_file():
+                            resolved_file = c
+                            break
+
+            if resolved_file is not None:
+                try:
+                    rel = resolved_file.relative_to(root_path).as_posix()
+                    internal_deps.append(rel)
+                    continue
+                except ValueError:
+                    pass
+            elif str(candidate_base).startswith(str(root_path)):
+                # Keep normalized relative path inside root
+                try:
+                    rel = candidate_base.relative_to(root_path).as_posix()
+                    internal_deps.append(rel)
+                    continue
+                except ValueError:
+                    pass
+        else:
+            # Non-relative import: check if it resolves to an internal repo path
+            cand = (root_path / raw).resolve()
+            if cand.exists() and str(cand).startswith(str(root_path)):
+                try:
+                    internal_deps.append(cand.relative_to(root_path).as_posix())
+                except ValueError:
+                    pass
+
+    return sorted(dict.fromkeys(internal_deps))
+
+
+def init_context_md(root_dir: str | Path, force: bool = False) -> Path:
+    """Scaffold .eva/context.md project context file from detected project stack."""
+    root = Path(root_dir).resolve()
+    eva_dir = root / ".eva"
+    eva_dir.mkdir(parents=True, exist_ok=True)
+    target = eva_dir / "context.md"
+
+    if target.exists() and not force:
+        return target
+
+    stack = detect_stack(root)
+    content = f"""# Project Context
+
+## Overview
+{root.name}
+
+## Stack
+{stack.to_summary_string()}
+
+## Architecture
+- Root: {root}
+- Languages: {", ".join(stack.languages) if stack.languages else "Unknown"}
+- Frameworks: {", ".join(stack.frameworks) if stack.frameworks else "None detected"}
+- Key Dependencies: {", ".join(stack.dependencies[:10]) if stack.dependencies else "None detected"}
+
+## Development Notes
+- Auto-generated by Eva CLI (`eva context init`).
+"""
+    target.write_text(content, encoding="utf-8")
+    return target

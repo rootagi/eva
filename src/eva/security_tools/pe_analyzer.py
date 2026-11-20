@@ -6,7 +6,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-import pefile
+try:
+    import pefile
+except ImportError:
+    pefile = None
+
 
 from eva.security_tools.models import Finding
 from eva.security_tools.normalizers import make_finding
@@ -63,6 +67,11 @@ def analyze_pe(file_path: Path | str, artifact_path: str | None = None) -> tuple
     path = Path(file_path).resolve()
     if not path.exists() or not path.is_file():
         raise FileNotFoundError(f"PE file not found: {path}")
+
+    if pefile is None:
+        from eva.security_tools.deps import missing_extra_exit
+
+        missing_extra_exit("sec", "PE binary analysis")
 
     findings: list[Finding] = []
     metadata: dict[str, Any] = {

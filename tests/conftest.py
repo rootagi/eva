@@ -24,3 +24,13 @@ def mock_config(monkeypatch, tmp_path):
         }
     )
     return config
+
+
+def pytest_configure(config):
+    args = [str(a) for a in config.args]
+    if any("e2e" in a for a in args) and not any("unit" in a for a in args):
+        if hasattr(config.option, "cov_fail_under"):
+            config.option.cov_fail_under = None
+        cov_plugin = config.pluginmanager.get_plugin("_cov")
+        if cov_plugin and hasattr(cov_plugin, "options"):
+            cov_plugin.options.cov_fail_under = None

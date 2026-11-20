@@ -8,6 +8,8 @@ from rich.console import Console
 from rich.table import Table
 
 from eva.security_tools.aegis import SAFE_AEGIS_OPERATIONS
+from eva.security_tools.bundle import create_bundle, list_bundle, verify_bundle
+from eva.security_tools.deps import check_extra_available, missing_extra_exit
 from eva.security_tools.elf_analyzer import analyze_elf
 from eva.security_tools.entropy import analyze_file_entropy
 from eva.security_tools.intel_client import IntelClient, extract_iocs
@@ -18,6 +20,7 @@ from eva.security_tools.registry import get_adapter, list_adapters
 from eva.security_tools.report import render_terminal, write_reports
 from eva.security_tools.scope import ScopeError, assert_zap_authorized, load_scope_file
 from eva.security_tools.strings_analyzer import extract_and_analyze_strings
+from eva.security_tools.triage import run_triage, validate_triage_files
 from eva.security_tools.utils import (
     artifact_record,
     ensure_run_dir,
@@ -25,7 +28,7 @@ from eva.security_tools.utils import (
     new_run_id,
     write_json_artifact,
 )
-from eva.security_tools.workflow import ingest_report, run_security_workflow
+from eva.security_tools.workflow import ingest_reports, run_security_workflow
 from eva.security_tools.yara_scanner import compile_yara_rules, get_default_rules_path, scan_with_yara
 from eva.ui.formatter import print_error, print_info, print_success
 
@@ -34,11 +37,15 @@ media_app = typer.Typer(help="Defensive media forensics through Aegis.")
 yara_app = typer.Typer(help="Defensive YARA rule compilation and scanning.")
 binary_app = typer.Typer(help="Static binary analysis and malware inspection (PE, ELF, entropy, strings).")
 intel_app = typer.Typer(help="Threat intelligence enrichment and IOC extraction.")
+triage_app = typer.Typer(help="Endpoint triage orchestration and schema validation.")
+bundle_app = typer.Typer(help="Tamper-evident evidence bundle creation, verification, and inspection.")
 
 sec_app.add_typer(media_app, name="media")
 sec_app.add_typer(yara_app, name="yara")
 sec_app.add_typer(binary_app, name="binary")
 sec_app.add_typer(intel_app, name="intel")
+sec_app.add_typer(triage_app, name="triage")
+sec_app.add_typer(bundle_app, name="bundle")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -178,6 +185,10 @@ def _run_aegis_media(
     formats: list[str],
     input_path: Path | None = None,
 ) -> None:
+    hint = check_extra_available("sec-media")
+    if hint:
+        missing_extra_exit("sec-media", "Media forensics (Aegis)")
+
     if operation not in SAFE_AEGIS_OPERATIONS:
         print_error(f"Aegis operation is not exposed by eva sec: {operation}")
         raise typer.Exit(1)
@@ -617,17 +628,49 @@ def media_shred_cmd(
 
 @sec_app.command("ingest")
 def ingest_cmd(
-    report: Annotated[Path, typer.Argument(help="SARIF, JSON, or Aegis JSON report")],
-    artifacts_dir: Annotated[Path, typer.Option("--artifacts-dir", help="Artifact root directory")] = Path(
-        ".eva/artifacts"
-    ),
+    reports: Annotated[
+        list[str],
+        typer.Argument(help="Reports, directories, or glob patterns"),
+    ],
+    artifacts_dir: Annotated[
+        Path,
+        typer.Option("--artifacts-dir", help="Artifact root directory"),
+    ] = Path(".eva/artifacts"),
     formats: Annotated[
-        list[str] | None, typer.Option("--format", "-f", help="Report format: terminal, json, markdown, sarif")
+        list[str] | None,
+        typer.Option("--format", "-f", help="Report format: terminal, json, markdown, sarif"),
     ] = None,
+    keep_going: Annotated[
+        bool,
+        typer.Option("--keep-going", help="Continue processing remaining reports on error"),
+    ] = False,
 ):
-    """Normalize an existing report into Eva's finding schema."""
-    findings, context = ingest_report(report, artifacts_dir=artifacts_dir)
+    """Normalize existing reports into Eva's finding schema with fingerprint deduplication."""
+    try:
+        findings, context, stats = ingest_reports(
+            reports,
+            artifacts_dir=artifacts_dir,
+            keep_going=keep_going,
+        )
+    except FileNotFoundError as err:
+        print_error(str(err))
+        raise typer.Exit(code=1)
+    except (ValueError, TypeError, OSError, RuntimeError) as err:
+        print_error(f"Ingest failed: {err}")
+        raise typer.Exit(code=1)
+
     _render_and_write(findings, context.run_dir, _formats(formats))
+
+    # Multi-file per-input breakdown
+    if len(stats.get("input_files", [])) > 1:
+        for file_path, count in stats.get("per_file_counts", {}).items():
+            print_info(f"  {Path(file_path).name}: {count} findings")
+
+    # Deduplication summary
+    total_duplicates = stats.get("total_duplicates", 0)
+    if total_duplicates > 0:
+        print_info(f"Deduplicated {total_duplicates} duplicate finding(s) across reports.")
+
     print_success(f"Ingested {len(findings)} findings into {context.run_dir}")
 
 
@@ -742,6 +785,27 @@ def yara_scan_cmd(
         ),
     ] = None,
     recursive: Annotated[bool, typer.Option("--recursive/--no-recursive", help="Scan directories recursively")] = True,
+    max_size: Annotated[
+        int,
+        typer.Option(
+            "--max-size",
+            help="Maximum file size in bytes to scan (default 10 MiB)",
+        ),
+    ] = 10 * 1024 * 1024,
+    include_ignored: Annotated[
+        bool,
+        typer.Option(
+            "--include-ignored",
+            help="Include ignored directories (.git, node_modules, etc.) in scan",
+        ),
+    ] = False,
+    timeout: Annotated[
+        float | None,
+        typer.Option(
+            "--timeout",
+            help="Maximum scan duration in seconds before halting",
+        ),
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show scan plan without executing")] = False,
     artifacts_dir: Annotated[Path, typer.Option("--artifacts-dir", help="Artifact root directory")] = Path(
         ".eva/artifacts"
@@ -751,12 +815,19 @@ def yara_scan_cmd(
     ] = None,
 ):
     """Scan files or directories using curated defensive YARA rules or custom rule files."""
+    hint = check_extra_available("sec")
+    if hint:
+        missing_extra_exit("sec", "YARA scanning")
+
     rules_path = rules or get_default_rules_path()
     context = _new_context(artifacts_dir, dry_run=dry_run)
 
     if dry_run:
         print_info(f"[Dry-Run] Planned YARA scan on: {path}")
         print_info(f"[Dry-Run] Rules source: {rules_path} (recursive={recursive})")
+        print_info(
+            f"[Dry-Run] Max file size: {max_size} bytes, include_ignored: {include_ignored}, timeout: {timeout}s"
+        )
         print_info(f"[Dry-Run] Output formats: {_formats(formats)}")
         return
 
@@ -765,14 +836,34 @@ def yara_scan_cmd(
         raise typer.Exit(1)
 
     try:
-        findings = scan_with_yara(path, rules=rules_path, recursive=recursive, artifact_path=str(context.run_dir))
+        findings = scan_with_yara(
+            path,
+            rules=rules_path,
+            recursive=recursive,
+            artifact_path=str(context.run_dir),
+            max_file_size_bytes=max_size,
+            include_ignored=include_ignored,
+            scan_deadline_seconds=timeout,
+        )
     except Exception as exc:
         print_error(f"YARA scan failed: {exc}")
         raise typer.Exit(1) from exc
 
+    manifest = {
+        "target": str(path),
+        "rules": str(rules_path),
+        "recursive": recursive,
+        "max_size": max_size,
+        "include_ignored": include_ignored,
+        "timeout": timeout,
+        "matches_count": len(findings),
+        "files_scanned": getattr(findings, "files_scanned", len(findings)),
+        "files_skipped": getattr(findings, "files_skipped", 0),
+        "timed_out": getattr(findings, "timed_out", False),
+    }
     write_json_artifact(
         context.run_dir / "yara-scan-manifest.json",
-        {"target": str(path), "rules": str(rules_path), "recursive": recursive, "matches_count": len(findings)},
+        manifest,
         "yara-scan",
     )
     report_paths = _render_and_write(findings, context.run_dir, _formats(formats))
@@ -822,6 +913,10 @@ def binary_pe_cmd(
     ] = None,
 ):
     """Extract PE headers, compile timestamp, entry point, imports/exports, and security flags."""
+    hint = check_extra_available("sec")
+    if hint:
+        missing_extra_exit("sec", "PE binary analysis")
+
     context = _new_context(artifacts_dir, dry_run=dry_run)
     if dry_run:
         print_info(f"[Dry-Run] Planned PE static analysis for: {file}")
@@ -876,6 +971,10 @@ def binary_elf_cmd(
     ] = None,
 ):
     """Extract ELF headers, architecture, entry point, shared libraries, symbols, and mitigations."""
+    hint = check_extra_available("sec")
+    if hint:
+        missing_extra_exit("sec", "ELF binary analysis")
+
     context = _new_context(artifacts_dir, dry_run=dry_run)
     if dry_run:
         print_info(f"[Dry-Run] Planned ELF static analysis for: {file}")
@@ -1177,3 +1276,244 @@ def intel_extract_cmd(
         "run-summary",
     )
     print_success(f"IOC extraction complete: {len(findings)} finding(s). Artifacts: {context.run_dir}")
+
+
+# ---------------------------------------------------------------------------
+# Endpoint Triage (eva sec triage)
+# ---------------------------------------------------------------------------
+
+
+@triage_app.command("run")
+def triage_run_cmd(
+    scripts_dir: Annotated[
+        Path | None,
+        typer.Option("--scripts-dir", "-s", help="Custom triage scripts directory"),
+    ] = None,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", "-o", help="Output directory for triage results"),
+    ] = Path(".eva/triage"),
+    os_name: Annotated[
+        str | None,
+        typer.Option("--os", help="Target OS name (linux, windows)"),
+    ] = None,
+    collectors: Annotated[
+        list[str] | None,
+        typer.Option("--collector", "-c", help="Specific collectors to run"),
+    ] = None,
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", "-t", help="Timeout per collector in seconds"),
+    ] = 30,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show execution plan without running collectors"),
+    ] = False,
+):
+    """Run endpoint triage collectors and aggregate findings into a normalized triage artifact."""
+    if dry_run:
+        print_info(f"[Dry-Run] Planned triage run targeting OS: {os_name or 'auto'}")
+        print_info(f"[Dry-Run] Output directory: {output_dir}")
+        print_info(f"[Dry-Run] Scripts directory: {scripts_dir or 'built-in'}")
+        return
+
+    try:
+        summary = run_triage(
+            scripts_dir=scripts_dir,
+            output_dir=output_dir,
+            platform_name=os_name,
+            scripts=collectors,
+            timeout=timeout,
+            dry_run=dry_run,
+        )
+        report_dir = summary.get("output_dir", str(output_dir))
+        report_path = Path(report_dir) / "summary.json"
+        print_success(f"Triage execution completed. Report: {report_path}")
+    except Exception as exc:
+        print_error(f"Triage execution failed: {exc}")
+        raise typer.Exit(1) from exc
+
+
+@triage_app.command("validate")
+def triage_validate_cmd(
+    files: Annotated[
+        list[Path],
+        typer.Argument(help="Triage JSON files to validate against schema"),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show validation plan without reading files"),
+    ] = False,
+):
+    """Validate one or more endpoint triage report files against schema."""
+    if dry_run:
+        print_info(f"[Dry-Run] Planned validation of {len(files)} triage file(s)")
+        return
+
+    validation_results = validate_triage_files(files)
+    all_valid = validation_results.get("all_valid", False)
+
+    table = Table(title="Triage Report Schema Validation")
+    table.add_column("File", style="cyan")
+    table.add_column("Valid", style="bold")
+    table.add_column("Errors / Details")
+
+    for item in validation_results.get("results", []):
+        fpath = str(item.get("path", ""))
+        is_valid = item.get("valid", False)
+        errors = item.get("errors", [])
+        if not is_valid:
+            table.add_row(fpath, "[red]FAIL[/red]", "\n".join(errors) if errors else "Validation failed")
+        else:
+            table.add_row(fpath, "[green]PASS[/green]", "Schema conformant")
+
+    for m in validation_results.get("missing_targets", []):
+        table.add_row(str(m), "[red]MISSING[/red]", "File not found")
+
+    console.print(table)
+    if not all_valid:
+        raise typer.Exit(1)
+    print_success("All triage reports conform to schema.")
+
+
+# ---------------------------------------------------------------------------
+# Tamper-Evident Evidence Bundle (eva sec bundle)
+# ---------------------------------------------------------------------------
+
+
+@bundle_app.command("create")
+def bundle_create_cmd(
+    inputs: Annotated[
+        list[Path],
+        typer.Argument(help="Files or directories to package into evidence bundle"),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Output bundle path (.evabnd or .tar.gz)"),
+    ] = Path("evidence.evabnd"),
+    case_id: Annotated[
+        str,
+        typer.Option("--case-id", help="Incident case identifier"),
+    ] = "INC-UNKNOWN",
+    examiner: Annotated[
+        str,
+        typer.Option("--examiner", help="Incident responder or forensic examiner"),
+    ] = "Unknown Examiner",
+    encrypt: Annotated[
+        bool,
+        typer.Option("--encrypt/--no-encrypt", help="Encrypt bundle with AES-256-GCM"),
+    ] = True,
+    passphrase: Annotated[
+        str | None,
+        typer.Option("--passphrase", "-p", help="Passphrase for encryption (prompted if omitted)"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show bundle creation plan without creating file"),
+    ] = False,
+):
+    """Create a tamper-evident, authenticated forensic evidence bundle."""
+    if encrypt and not passphrase and not dry_run:
+        passphrase = typer.prompt("Bundle encryption passphrase", hide_input=True)
+
+    if dry_run:
+        print_info(f"[Dry-Run] Planned evidence bundle {output} with {len(inputs)} input(s)")
+        return
+
+    try:
+        metadata = create_bundle(
+            targets=inputs,
+            output=output,
+            case_id=case_id,
+            examiner=examiner,
+            encrypt=encrypt,
+            passphrase=passphrase,
+        )
+
+        table = Table(title="Evidence Bundle Created")
+        table.add_column("Property", style="cyan")
+        table.add_column("Value")
+        table.add_row("Bundle File", str(output))
+        table.add_row("Case ID", str(metadata.get("case_id", case_id)))
+        table.add_row("Examiner", str(examiner))
+        table.add_row("Files Count", str(metadata.get("files_packaged", len(inputs))))
+        table.add_row("Encrypted", "Yes (AES-256-GCM / PBKDF2)" if metadata.get("encrypted") else "No")
+        table.add_row("SHA-256", str(metadata.get("sha256", ""))[:16] + "...")
+        console.print(table)
+        print_success(f"Evidence bundle created at {output} with SHA-256 sidecar.")
+    except Exception as exc:
+        print_error(f"Bundle creation failed: {exc}")
+        raise typer.Exit(1) from exc
+
+
+@bundle_app.command("verify")
+def bundle_verify_cmd(
+    bundle_path: Annotated[
+        Path,
+        typer.Argument(help="Evidence bundle path to verify (.evabnd or .tar.gz)"),
+    ],
+    passphrase: Annotated[
+        str | None,
+        typer.Option("--passphrase", "-p", help="Passphrase if bundle is encrypted"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show verification plan"),
+    ] = False,
+):
+    """Verify integrity and cryptographic tamper-evidence of an evidence bundle."""
+    if dry_run:
+        print_info(f"[Dry-Run] Planned verification for bundle: {bundle_path}")
+        return
+
+    try:
+        result = verify_bundle(archive_path=bundle_path, passphrase=passphrase)
+        if result.get("valid") is True:
+            print_success(f"Bundle {bundle_path} verified successfully: integrity intact.")
+        else:
+            errors = result.get("errors", [])
+            err_msg = "; ".join(errors) if errors else "tampering or mismatch detected"
+            print_error(f"Bundle {bundle_path} failed verification: {err_msg}")
+            raise typer.Exit(1)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        print_error(f"Verification failed: {exc}")
+        raise typer.Exit(1) from exc
+
+
+@bundle_app.command("list")
+def bundle_list_cmd(
+    bundle_path: Annotated[
+        Path,
+        typer.Argument(help="Evidence bundle path to inspect"),
+    ],
+    passphrase: Annotated[
+        str | None,
+        typer.Option("--passphrase", "-p", help="Passphrase if bundle is encrypted"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show list plan"),
+    ] = False,
+):
+    """List contents of an evidence bundle without full extraction."""
+    if dry_run:
+        print_info(f"[Dry-Run] Planned listing for bundle: {bundle_path}")
+        return
+
+    try:
+        manifest = list_bundle(archive_path=bundle_path, passphrase=passphrase)
+        files = manifest.get("files", [])
+
+        table = Table(title=f"Bundle Contents: {bundle_path.name}")
+        table.add_column("Relative Path", style="cyan")
+        table.add_column("Size (Bytes)")
+        table.add_column("SHA-256")
+        for e in files:
+            table.add_row(e.get("path", ""), str(e.get("size", "")), e.get("sha256", "")[:16] + "...")
+        console.print(table)
+        print_success(f"{len(files)} file(s) in bundle.")
+    except Exception as exc:
+        print_error(f"Listing failed: {exc}")
+        raise typer.Exit(1) from exc

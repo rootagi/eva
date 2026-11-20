@@ -299,6 +299,79 @@ python3 scripts/evidence_bundle.py verify evidence/CASE-2026-001.tar.gz
 See [`scripts/README.md`](scripts/README.md) for the full collector inventory,
 parameters, and safety model.
 
+### Web Intelligence & Local SearXNG Setup (`eva web`)
+
+Eva includes a privacy-preserving web metasearch client and reader mode built on top of SearXNG, complete with SSRF validation, offline SQLite FTS5 caching, and native terminal OSC 8 hyperlinks.
+
+#### Quick Local SearXNG Setup (via Docker)
+
+Because public instances frequently rate-limit or block programmatic JSON access, we recommend running a local SearXNG container (no external server required):
+
+```bash
+# 1. Create a minimal configuration enabling the JSON API
+mkdir -p ~/searxng && cd ~/searxng
+cat << 'EOF' > settings.yml
+use_default_settings: true
+server:
+  secret_key: "ultrasecretkeyforsearxng"
+  bind_address: "0.0.0.0"
+  port: 8080
+search:
+  formats:
+    - html
+    - json
+EOF
+
+# 2. Launch SearXNG on port 8081 (avoiding local port 8080 conflicts)
+docker run -d \
+  --name searxng \
+  --restart unless-stopped \
+  -p 8081:8080 \
+  -v ~/searxng/settings.yml:/etc/searxng/settings.yml:ro \
+  searxng/searxng:latest
+
+# 3. Export the instance URL to your shell (or add to ~/.bashrc)
+export EVA_SEARXNG_URL="http://127.0.0.1:8081"
+```
+
+#### Web CLI Operations
+
+```bash
+# Search the web (interactive OSC 8 clickable links)
+eva web search "CVE-2024-3094"
+
+# Print raw un-truncated URLs for easy copying
+eva web search "CVE-2024-3094" --format url
+
+# Query local offline FTS5 cache without network access
+eva web search "CVE-2024-3094" --offline
+
+# Render article in terminal reader mode (fetches and caches markdown automatically)
+eva web open 1
+
+# Open article directly in your system default browser
+eva web open 1 --browser
+
+# Crawl and passively index documentation into local FTS5 database
+eva web index https://docs.python.org/3/whatsnew/3.12.html --depth 1
+
+# Render web/local image in terminal (Kitty, Sixel, iTerm2, half-block)
+eva web image https://example.com/architecture.png
+
+# Search for images and render directly in a 3x3 grid (Kitty GPU or TrueColor)
+eva web images "space nebula" --cols 3 --limit 9
+
+# Open image search composite in native HD image viewer
+eva web images "space nebula" --view
+
+# Ask grounded questions incorporating web context
+eva ask "What is this vulnerability?" --web-id 1
+```
+
+> [!TIP]
+> **Pixel-Perfect HD Image Rendering:**
+> To render images directly in crisp High Definition (HD) inside your terminal, we recommend using **[Kitty terminal](https://sw.kovidgoyal.net/kitty/)** (`TERM=xterm-kitty`), which leverages Kitty's native GPU graphics protocol. Eva also supports Sixel and iTerm2 protocols, and automatically falls back to unicode TrueColor half-blocks on standard terminals. Alternatively, pass `--view` (`-v`) on `eva web image` or `eva web images` to launch the full-resolution image in your system's native HD image viewer (via `xdg-open`).
+
 ## Command reference
 
 | Command | Purpose |
@@ -326,6 +399,14 @@ parameters, and safety model.
 | `eva tree` | Print a `.gitignore`-aware directory tree. |
 | `eva usage` | Show normalized local provider usage counters. |
 | `eva context show` | Display project memory from `.eva/context.md` if present. |
+| `eva context init` | Scaffold `.eva/context.md` project memory from detected technology stack (`--force`). |
+| `eva web search` | Query web via SearXNG with secret redaction and FTS5 caching (`--offline`, `--category`, `--format url`). |
+| `eva web open` | Render web document or cached article in terminal reader mode (`--images`, `--browser`). |
+| `eva web index` | Crawl and index website pages into local SQLite FTS5 database (`--depth`, `--max-pages`). |
+| `eva web image` | Render images directly in terminal via Kitty, Sixel, iTerm2, or half-blocks (`--view`, `--browser`). |
+| `eva web images` | Search images via SearXNG and render directly in an interactive 3x3 grid / collage (`--cols`, `--limit`, `--view`). |
+| `eva web history` | Display recent web browsing and indexing history. |
+| `eva web explore` | Interactive terminal SERP navigator and web page reader. |
 | `eva config set-key <provider>` | Store an API key in the OS keyring. |
 | `eva config remove-key <provider>` | Delete a stored API key from the OS keyring. |
 | `eva config set-model <provider> <model>` | Set active model for a provider. |

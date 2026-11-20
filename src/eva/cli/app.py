@@ -11,6 +11,7 @@ from eva.cli.commands.config_cmd import config_app, use
 from eva.cli.commands.context import context_app
 from eva.cli.commands.edit import changes, commit, edit
 from eva.cli.commands.security import sec_app
+from eva.cli.commands.web import web_app
 from eva.cli.commands.work import replay, work
 from eva.cli.commands.workflow import workflow_app
 from eva.cli.commands.workspace import workspace_app
@@ -29,6 +30,7 @@ app.add_typer(workspace_app, name="workspace")
 app.add_typer(cache_app, name="cache")
 app.add_typer(context_app, name="context")
 app.add_typer(sec_app, name="sec")
+app.add_typer(web_app, name="web")
 
 _loaded_plugins: list = []
 _plugins_initialized: bool = False

@@ -115,3 +115,69 @@ def test_cli_yara_compile_live(tmp_path):
     assert result.exit_code == 0
     assert out.exists()
     assert "Successfully compiled YARA rules" in result.output
+
+
+def test_yara_scanner_bounds_and_stats(tmp_path):
+    from eva.security_tools.yara_scanner import YaraScanner, collect_scan_files
+
+    # 1. Normal file
+    f_normal = tmp_path / "normal.txt"
+    f_normal.write_text("MALICIOUS_PAYLOAD", encoding="utf-8")
+
+    # 2. Oversized file
+    f_large = tmp_path / "large.bin"
+    f_large.write_bytes(b"A" * 1000)
+
+    # 3. Ignored directory
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    (git_dir / "secret.txt").write_text("MALICIOUS_PAYLOAD", encoding="utf-8")
+
+    # 4. Symlink
+    symlink_target = tmp_path / "symlink_file.txt"
+    try:
+        symlink_target.symlink_to(f_normal)
+    except OSError:
+        pass
+
+    # Collect with max_size_bytes = 500
+    files, skipped = collect_scan_files(
+        tmp_path,
+        max_file_size_bytes=500,
+        recursive=True,
+    )
+    assert f_normal in files
+    assert f_large not in files
+    assert (git_dir / "secret.txt") not in files
+    assert "oversized" in skipped
+    assert "symlink" in skipped
+
+    # Run YaraScanner directly
+    rule_file = tmp_path / "simple.yar"
+    rule_file.write_text(
+        """
+rule MatchPayload {
+    strings:
+        $s = "MALICIOUS_PAYLOAD"
+    condition:
+        $s
+}
+""",
+        encoding="utf-8",
+    )
+    scanner = YaraScanner(rules=rule_file, max_file_size_bytes=500)
+    result = scanner.scan(tmp_path)
+    assert len(result) >= 1
+    assert result.files_scanned >= 1
+    assert result.files_skipped >= 1
+    assert result.duration_seconds >= 0
+    assert result.timed_out is False
+
+
+def test_cli_yara_scan_bounds_flags(tmp_path):
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("hello", encoding="utf-8")
+
+    result = runner.invoke(app, ["sec", "yara", "scan", str(test_file), "--max-size", "1048576", "--timeout", "10"])
+    assert result.exit_code == 0
+    assert "YARA scan complete" in result.output

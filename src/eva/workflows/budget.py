@@ -1,5 +1,7 @@
 import json
+import os
 import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,19 +10,84 @@ from pydantic import BaseModel, Field
 
 from eva.config import get_config_dir
 
-__all__ = ["get_config_dir"]
+__all__ = [
+    "MODEL_PRICING",
+    "Budget",
+    "UsageStats",
+    "atomic_write_json",
+    "calculate_cost",
+    "check_and_increment",
+    "get_budget_file",
+    "get_budget_lock_file",
+    "get_config_dir",
+    "get_live_budget",
+    "load_budget",
+    "normalize_usage_stats",
+    "remaining_budget",
+    "reset_provider_usage",
+    "save_budget",
+]
 
 _budget_thread_lock = threading.RLock()
+
+# Static model pricing table: (input_price_per_1M, output_price_per_1M) in USD
+MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "llama-3.3-70b-versatile": (0.59, 0.79),
+    "llama-3.1-70b-versatile": (0.59, 0.79),
+    "llama-3.1-8b-instant": (0.05, 0.08),
+    "llama-3.2-1b-preview": (0.04, 0.04),
+    "llama-3.2-3b-preview": (0.06, 0.06),
+    "llama-3.2-11b-vision-preview": (0.18, 0.18),
+    "llama-3.2-90b-vision-preview": (0.90, 0.90),
+    "llama-guard-3-8b": (0.20, 0.20),
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "o1": (15.00, 60.00),
+    "o1-mini": (3.00, 12.00),
+    "o3-mini": (1.10, 4.40),
+    "gemini-2.5-flash": (0.15, 0.60),
+    "gemini-2.5-pro": (1.25, 5.00),
+    "gemini-3-flash": (0.15, 0.60),
+    "claude-3-5-sonnet-20241022": (3.00, 15.00),
+    "claude-3-5-haiku-20241022": (0.80, 4.00),
+    "deepseek-chat": (0.14, 0.28),
+    "deepseek-reasoner": (0.55, 2.19),
+}
+
+
+def calculate_cost(model: str, input_tokens: int = 0, output_tokens: int = 0) -> float | None:
+    """Calculate estimated cost in USD based on MODEL_PRICING table.
+    Returns None if model is unknown.
+    """
+    if model in MODEL_PRICING:
+        in_price, out_price = MODEL_PRICING[model]
+        return (input_tokens * in_price + output_tokens * out_price) / 1_000_000.0
+
+    for k, v in MODEL_PRICING.items():
+        if k in model or model in k:
+            in_price, out_price = v
+            return (input_tokens * in_price + output_tokens * out_price) / 1_000_000.0
+
+    return None
 
 
 class UsageStats(BaseModel):
     requests_today: int = 0
     requests_this_minute: int = 0
     last_request_time: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    estimated_cost_usd: float | None = None
+    last_model: str | None = None
 
 
 class Budget(BaseModel):
     usage_by_provider: dict[str, UsageStats] = Field(default_factory=dict)
+    stats: UsageStats = Field(default_factory=UsageStats)
+
+    @property
+    def requests_today(self) -> int:
+        return self.stats.requests_today
 
 
 def get_budget_file() -> Path:
@@ -31,69 +98,116 @@ def get_budget_lock_file() -> Path:
     return get_config_dir() / "usage.lock"
 
 
+def atomic_write_json(path: Path | str, data: dict) -> None:
+    """Write dictionary to path atomically by writing to .tmp, flushing, fsyncing, and replacing."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = target.with_suffix(".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, target)
+
+
 @contextmanager
-def _locked_budget_file():
+def _locked_budget_file(lock_file: Path | None = None, timeout: float = 5.0):
     with _budget_thread_lock:
-        lock_file = get_budget_lock_file()
-        lock_file.parent.mkdir(parents=True, exist_ok=True)
+        target_lock = Path(lock_file) if lock_file is not None else get_budget_lock_file()
+        target_lock.parent.mkdir(parents=True, exist_ok=True)
+        start_t = time.monotonic()
+        delay = 0.01
+
         try:
             import fcntl
 
-            with open(lock_file, "a+") as lock:
+            with open(target_lock, "a+") as lock:
+                acquired = False
+                while True:
+                    try:
+                        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        acquired = True
+                        break
+                    except (BlockingIOError, OSError):
+                        if time.monotonic() - start_t >= timeout:
+                            break
+                        time.sleep(delay)
+                        delay = min(delay * 1.5, 0.2)
                 try:
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-                    yield
+                    yield acquired or lock
                 finally:
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                    if acquired:
+                        try:
+                            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                        except OSError:
+                            pass
         except ImportError:
             try:
                 import msvcrt
 
-                with open(lock_file, "a+") as lock:
-                    try:
-                        msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
-                        yield
-                    finally:
+                with open(target_lock, "a+") as lock:
+                    acquired = False
+                    while True:
                         try:
-                            lock.seek(0)
-                            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                            acquired = True
+                            break
                         except OSError:
-                            pass
+                            if time.monotonic() - start_t >= timeout:
+                                break
+                            time.sleep(delay)
+                            delay = min(delay * 1.5, 0.2)
+                    try:
+                        yield acquired or lock
+                    finally:
+                        if acquired:
+                            try:
+                                lock.seek(0)
+                                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                            except OSError:
+                                pass
             except (ImportError, OSError):
-                yield
+                yield target_lock
 
 
-def _load_budget_unlocked() -> Budget:
-    budget_file = get_budget_file()
-    if not budget_file.exists():
+def _load_budget_unlocked(budget_file: Path | None = None) -> Budget:
+    target_file = Path(budget_file) if budget_file is not None else get_budget_file()
+    if not target_file.exists():
         return Budget()
 
     try:
-        with open(budget_file, "r", encoding="utf-8") as f:
-            content = f.read().strip()
-            if not content:
-                return Budget()
-            data = json.loads(content)
+        content = target_file.read_text(encoding="utf-8").strip()
+        if not content:
+            return Budget()
+        data = json.loads(content)
         return Budget(**data)
-    except (json.JSONDecodeError, ValueError, OSError):
+    except (json.JSONDecodeError, ValueError, OSError, UnicodeDecodeError):
+        # Quarantine corrupt budget file to usage.json.corrupt-<timestamp>
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        corrupt_name = f"{target_file.name}.corrupt-{ts}"
+        corrupt_dest = target_file.parent / corrupt_name
+        try:
+            os.replace(target_file, corrupt_dest)
+        except OSError:
+            pass
         return Budget()
 
 
-def load_budget() -> Budget:
+def load_budget(budget_file: Path | None = None) -> Budget:
+    target_file = Path(budget_file) if budget_file is not None else get_budget_file()
     with _locked_budget_file():
-        return _load_budget_unlocked()
+        return _load_budget_unlocked(target_file)
 
 
-def _save_budget_unlocked(budget: Budget):
-    budget_file = get_budget_file()
-    budget_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(budget_file, "w") as f:
-        json.dump(budget.model_dump(), f, indent=2)
+def _save_budget_unlocked(budget: Budget, budget_file: Path | None = None) -> None:
+    target_file = Path(budget_file) if budget_file is not None else get_budget_file()
+    atomic_write_json(target_file, budget.model_dump())
 
 
-def save_budget(budget: Budget):
+def save_budget(budget: Budget, budget_file: Path | None = None) -> None:
+    target_file = Path(budget_file) if budget_file is not None else get_budget_file()
     with _locked_budget_file():
-        _save_budget_unlocked(budget)
+        _save_budget_unlocked(budget, target_file)
 
 
 def normalize_usage_stats(stats: UsageStats, now: datetime | None = None) -> UsageStats:

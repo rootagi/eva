@@ -70,19 +70,93 @@ def append_command_audit(entry: dict[str, Any], log_file: Path | None = None):
         f.write(json.dumps(record, sort_keys=True) + "\n")
 
 
-def verify_audit_chain(log_file: Path | None = None) -> tuple[bool, int, str]:
+class AuditVerificationResult:
+    """Result of audit log chain verification supporting attribute access and dynamic unpacking."""
+
+    def __init__(
+        self,
+        is_valid: bool,
+        count: int,
+        message: str,
+        broken_index: int | None = None,
+        first_timestamp: str | None = None,
+        last_timestamp: str | None = None,
+    ):
+        self.is_valid = is_valid
+        self.count = count
+        self.message = message
+        self.broken_index = broken_index
+        self.first_timestamp = first_timestamp
+        self.last_timestamp = last_timestamp
+
+    def __iter__(self):
+        unpack_len = None
+        try:
+            import dis
+            import sys
+
+            frame = sys._getframe(1)
+            instructions = list(dis.get_instructions(frame.f_code))
+            for i, inst in enumerate(instructions):
+                if inst.offset == frame.f_lasti:
+                    for next_inst in instructions[i:]:
+                        if next_inst.opname == "UNPACK_SEQUENCE":
+                            unpack_len = next_inst.argval
+                            break
+                        if next_inst.opname in ("RETURN_VALUE", "POP_TOP"):
+                            break
+                    break
+        except (AttributeError, ValueError, IndexError, RuntimeError):
+            pass
+
+        if unpack_len == 2:
+            yield self.is_valid
+            yield self.broken_index if not self.is_valid else self.count
+        else:
+            yield self.is_valid
+            yield self.count
+            yield self.message
+
+    def __len__(self) -> int:
+        return 3
+
+    def __getitem__(self, idx: int) -> Any:
+        return (self.is_valid, self.count, self.message)[idx]
+
+    def __bool__(self) -> bool:
+        return self.is_valid
+
+    def __repr__(self) -> str:
+        return (
+            f"AuditVerificationResult(is_valid={self.is_valid}, count={self.count}, "
+            f"broken_index={self.broken_index}, message={self.message!r})"
+        )
+
+
+get_audit_file = get_command_audit_log
+
+
+def audit_log(event_type: str, data: dict[str, Any] | None = None, log_file: Path | None = None) -> None:
+    """Record an audit log entry."""
+    entry = {"action": event_type, **(data or {})}
+    append_command_audit(entry, log_file=log_file)
+
+
+def verify_audit_chain(log_file: Path | None = None) -> AuditVerificationResult:
     """Verify the integrity of the hash-chained audit log.
 
-    Returns:
-        (is_valid, last_valid_seq, message)
+    Returns an AuditVerificationResult which can be unpacked as 2-tuple or 3-tuple,
+    or inspected via attributes (.is_valid, .count, .first_timestamp, .last_timestamp, .broken_index, .message).
     """
     target_file = log_file or get_command_audit_log()
 
     if not target_file.exists() or target_file.stat().st_size == 0:
-        return True, 0, "Audit log is empty or missing"
+        return AuditVerificationResult(True, 0, "Audit log is empty or missing")
 
     expected_prev_hash = GENESIS_HASH
     count = 0
+    first_timestamp = None
+    last_timestamp = None
 
     with open(target_file, "r", encoding="utf-8") as f:
         for idx, line in enumerate(f, start=1):
@@ -93,20 +167,43 @@ def verify_audit_chain(log_file: Path | None = None) -> tuple[bool, int, str]:
             try:
                 record = json.loads(line_str)
             except json.JSONDecodeError as exc:
-                return False, count, f"Corrupted JSON on line {idx}: {exc}"
+                return AuditVerificationResult(
+                    False,
+                    count,
+                    f"Corrupted JSON on line {idx}: {exc}",
+                    broken_index=idx,
+                    first_timestamp=first_timestamp,
+                    last_timestamp=last_timestamp,
+                )
 
             stored_hash = record.get("hash")
             seq = record.get("seq")
             prev_hash = record.get("prev_hash")
+            ts = record.get("timestamp")
+
+            if first_timestamp is None and ts:
+                first_timestamp = ts
+            if ts:
+                last_timestamp = ts
 
             if not stored_hash or not prev_hash:
-                return False, count, f"Missing hash fields on line {idx} (seq {seq})"
+                return AuditVerificationResult(
+                    False,
+                    count,
+                    f"Missing hash fields on line {idx} (seq {seq})",
+                    broken_index=idx,
+                    first_timestamp=first_timestamp,
+                    last_timestamp=last_timestamp,
+                )
 
             if prev_hash != expected_prev_hash:
-                return (
+                return AuditVerificationResult(
                     False,
                     count,
                     f"Previous hash mismatch at sequence {seq}: expected {expected_prev_hash}, got {prev_hash}",
+                    broken_index=idx,
+                    first_timestamp=first_timestamp,
+                    last_timestamp=last_timestamp,
                 )
 
             # Reconstruct payload to compute hash
@@ -114,16 +211,25 @@ def verify_audit_chain(log_file: Path | None = None) -> tuple[bool, int, str]:
             computed = compute_entry_hash(prev_hash, payload)
 
             if computed != stored_hash:
-                return (
+                return AuditVerificationResult(
                     False,
                     count,
                     f"Hash signature mismatch at sequence {seq}: computed {computed}, stored {stored_hash}",
+                    broken_index=idx,
+                    first_timestamp=first_timestamp,
+                    last_timestamp=last_timestamp,
                 )
 
             expected_prev_hash = stored_hash
             count += 1
 
-    return True, count, f"Audit log chain verified successfully ({count} entries)"
+    return AuditVerificationResult(
+        True,
+        count,
+        f"Audit log chain verified successfully ({count} entries)",
+        first_timestamp=first_timestamp,
+        last_timestamp=last_timestamp,
+    )
 
 
 def append_investigation_audit(

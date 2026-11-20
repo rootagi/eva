@@ -15,11 +15,12 @@ def test_golden_patch_extraction():
     assert extracted.strip() == expected_diff.strip()
 
 
-def test_golden_patch_application(tmp_path):
+def test_golden_patch_application(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     target_file = tmp_path / "example.py"
     target_file.write_text('def hello():\n    print("hello")\n', encoding="utf-8")
 
-    diff_text = f'--- a/{target_file}\n+++ b/{target_file}\n@@ -1,3 +1,3 @@\n def hello():\n-    print("hello")\n+    print("hello world")\n'
+    diff_text = '--- a/example.py\n+++ b/example.py\n@@ -1,3 +1,3 @@\n def hello():\n-    print("hello")\n+    print("hello world")\n'
 
     applied = apply_diff_python_fallback(diff_text)
     assert applied is True

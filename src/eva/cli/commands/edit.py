@@ -34,7 +34,7 @@ def commit(
 
     config = load_config()
     provider_name = _resolve_provider_name(config, provider)
-    max_tokens = config.general.context_token_limit or get_context_budget(provider_name, config)
+    max_tokens = get_context_budget(provider_name, config)
     trimmed_diff = trim_context(diff_text, max_tokens=max_tokens)
     stream = dispatch(COMMIT_SYSTEM_PROMPT, "Generate commit message", trimmed_diff, config, pinned_provider=provider)
     result = stream_response(stream)
@@ -75,7 +75,7 @@ def changes(
 
     config = load_config()
     provider_name = _resolve_provider_name(config, provider)
-    max_tokens = config.general.context_token_limit or get_context_budget(provider_name, config)
+    max_tokens = get_context_budget(provider_name, config)
     trimmed_diff = trim_context(diff_text, max_tokens=max_tokens)
     stream = dispatch(
         CHANGES_SYSTEM_PROMPT,
@@ -132,5 +132,17 @@ def edit(
         print_info("Patch not applied.")
         return
 
-    apply_unified_diff(diff_text)
+    authorized_paths = {p.resolve() for p in files} if files else None
+    success = apply_unified_diff(diff_text, authorized_paths=authorized_paths)
+
+    from eva.workspace.session import record_command_history
+
+    record_command_history(
+        entry_type="edit",
+        summary={"query": query_str[:200], "status": "applied" if success else "failed"},
+        metadata={"files": [str(p) for p in files]},
+    )
+    if not success:
+        print_error("Patch application failed.")
+        raise typer.Exit(1)
     print_success("Patch applied.")

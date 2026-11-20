@@ -37,8 +37,13 @@ def configure_sensitive_file_allowlist(patterns: list[str]) -> None:
 
 def is_sensitive_file(relative_path: str | Path) -> bool:
     """Check if a relative file path matches the sensitive file denylist."""
-    rel_str = str(relative_path)
-    filename = Path(relative_path).name.lower()
+    p = Path(relative_path)
+    rel_str = str(relative_path).replace("\\", "/")
+    filename = p.name.lower()
+    if any(part == ".git" for part in p.parts) and not any(
+        fnmatch.fnmatchcase(filename, pat.lower()) or fnmatch.fnmatchcase(rel_str, pat) for pat in _allowlist_patterns
+    ):
+        return True
     if any(fnmatch.fnmatchcase(filename, p.lower()) or fnmatch.fnmatchcase(rel_str, p) for p in _allowlist_patterns):
         return False
     return any(

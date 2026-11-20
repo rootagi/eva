@@ -9,6 +9,7 @@ ALWAYS_IGNORED_DIRS = {
     ".venv",
     "venv",
     "env",
+    ".env",
     "dist",
     "build",
     ".next",
@@ -16,17 +17,27 @@ ALWAYS_IGNORED_DIRS = {
     ".pytest_cache",
     ".mypy_cache",
     ".ruff_cache",
+    ".eva",
 }
 
 
-_effective_ignored_dirs: set[str] = set(ALWAYS_IGNORED_DIRS) | {".eva"}
+_effective_ignored_dirs: set[str] = set(ALWAYS_IGNORED_DIRS)
+_configured_extra: list[str] = []
+_configured_unignore: list[str] = []
 
 
 def configure_ignored_dirs(extra: list[str], unignore: list[str]) -> None:
     """Set the process-wide always-ignored directory set. Call once at startup."""
-    global _effective_ignored_dirs
-    base = (set(ALWAYS_IGNORED_DIRS) | {".eva"}) - set(unignore)
+    global _effective_ignored_dirs, _configured_extra, _configured_unignore
+    _configured_extra = list(extra)
+    _configured_unignore = list(unignore)
+    base = set(ALWAYS_IGNORED_DIRS) - set(unignore)
     _effective_ignored_dirs = base | set(extra)
+
+
+def get_ignored_dirs_config() -> tuple[list[str], list[str]]:
+    """Return the currently configured (extra_ignored_dirs, unignore_dirs)."""
+    return list(_configured_extra), list(_configured_unignore)
 
 
 def get_gitignore_spec(root_dir: Path) -> pathspec.PathSpec | None:
@@ -39,10 +50,18 @@ def get_gitignore_spec(root_dir: Path) -> pathspec.PathSpec | None:
     return spec
 
 
-def is_ignored(path: Path, root_dir: Path, spec: pathspec.PathSpec | None) -> bool:
+def is_ignored(
+    path: Path,
+    root_dir: Path,
+    spec: pathspec.PathSpec | None,
+    effective_ignored: set[str] | None = None,
+) -> bool:
     try:
         rel_path = path.relative_to(root_dir)
-        if any(part in _effective_ignored_dirs for part in rel_path.parts):
+        ignored_dirs = effective_ignored if effective_ignored is not None else _effective_ignored_dirs
+        if any(part in ignored_dirs for part in rel_path.parts[:-1]):
+            return True
+        if path.is_dir() and rel_path.name in ignored_dirs:
             return True
 
         if spec is None:

@@ -45,6 +45,13 @@ class GeneralConfig(BaseModel):
     unignore_dirs: list[str] = Field(default_factory=list)
     sensitive_file_allowlist: list[str] = Field(default_factory=list)
     context_token_limit: int | None = None
+    encrypt_sessions: bool = True
+    searxng_urls: list[str] = Field(default_factory=lambda: ["http://127.0.0.1:8080"])
+    web_timeout_seconds: float = 10.0
+    web_max_response_bytes: int = 2 * 1024 * 1024
+    web_max_image_bytes: int = 5 * 1024 * 1024
+    web_image_protocol: str = "auto"
+    agent_max_web_calls: int = 5
 
 
 class AppConfig(BaseModel):

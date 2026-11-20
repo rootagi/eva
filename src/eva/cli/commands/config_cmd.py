@@ -55,10 +55,132 @@ def set_provider(name: str):
     use(name)
 
 
+def _get_models_cache_file() -> Path:
+    from eva.config import get_config_dir
+
+    return get_config_dir() / "models_cache.json"
+
+
+def _load_models_cache() -> dict:
+    import json
+
+    cache_file = _get_models_cache_file()
+    if cache_file.exists():
+        try:
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return {"version": 1, "providers": {}}
+            if not isinstance(data.get("providers"), dict):
+                data["providers"] = {}
+            return data
+        except (OSError, json.JSONDecodeError, ValueError):
+            return {"version": 1, "providers": {}}
+    return {"version": 1, "providers": {}}
+
+
+def _save_models_cache(cache_data: dict) -> None:
+    import json
+    import tempfile
+
+    cache_file = _get_models_cache_file()
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    temp_dir = cache_file.parent
+    try:
+        with tempfile.NamedTemporaryFile("w", dir=temp_dir, delete=False, encoding="utf-8") as tf:
+            json.dump(cache_data, tf, indent=2)
+            tf.flush()
+            os.fsync(tf.fileno())
+            temp_name = tf.name
+        os.replace(temp_name, cache_file)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _fetch_provider_models(
+    provider_name: str, free_only: bool = False, refresh: bool = False
+) -> tuple[list[dict], bool]:
+    """Fetch models for provider using disk cache (1h TTL). Returns (models, from_cache)."""
+    import importlib
+    import time
+
+    from eva.providers import PROVIDER_MAP
+
+    cache_data = _load_models_cache()
+    providers = cache_data.get("providers") or {}
+    cached_entry = providers.get(provider_name, {}) if isinstance(providers, dict) else {}
+    fetched_at = cached_entry.get("fetched_at", 0)
+    cached_models = cached_entry.get("free_models" if free_only else "models", [])
+
+    if not refresh and cached_models and (time.time() - fetched_at < 3600):
+        return cached_models, True
+
+    mod_path = PROVIDER_MAP.get(provider_name)
+    if not mod_path:
+        return cached_models, False
+
+    try:
+        mod = importlib.import_module(mod_path)
+    except (ImportError, AttributeError, ValueError):
+        return cached_models, False
+
+    live_models: list[dict] = []
+    live_free: list[dict] = []
+
+    if free_only:
+        get_free_fn = getattr(mod, "get_free_models", None)
+        if callable(get_free_fn):
+            try:
+                live_free = get_free_fn()
+            except (RuntimeError, ValueError, OSError, KeyError, TypeError):
+                live_free = []
+        if not live_free:
+            get_all_fn = getattr(mod, "get_models", None)
+            if callable(get_all_fn):
+                try:
+                    all_m = get_all_fn()
+                    live_free = [m for m in all_m if "free" in m.get("id", "").lower()]
+                except (RuntimeError, ValueError, OSError, KeyError, TypeError):
+                    live_free = []
+        live_models = live_free
+    else:
+        get_all_fn = getattr(mod, "get_models", None)
+        if callable(get_all_fn):
+            try:
+                live_models = get_all_fn()
+            except (RuntimeError, ValueError, OSError, KeyError, TypeError):
+                live_models = []
+
+    if live_models:
+        if not isinstance(cache_data.get("providers"), dict):
+            cache_data["providers"] = {}
+        if provider_name not in cache_data["providers"] or not isinstance(cache_data["providers"][provider_name], dict):
+            cache_data["providers"][provider_name] = {}
+        cache_data["providers"][provider_name]["fetched_at"] = time.time()
+        if free_only:
+            cache_data["providers"][provider_name]["free_models"] = live_models
+        else:
+            cache_data["providers"][provider_name]["models"] = live_models
+        _save_models_cache(cache_data)
+        return live_models, False
+
+    if cached_models:
+        return cached_models, True
+
+    return [], False
+
+
+def _get_known_models_for_provider(provider_name: str) -> list[dict]:
+    models, _ = _fetch_provider_models(provider_name, free_only=False, refresh=False)
+    return models
+
+
 @config_app.command("set-model")
 def set_model_cmd(
     provider: str = typer.Argument(..., help="The provider name (e.g. openrouter, groq, gemini, ollama, llamacpp)"),
     model: str = typer.Argument(..., help="The model identifier to use for this provider"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Force setting model without validating against discovered models"
+    ),
 ):
     """Set the active model for a specific provider."""
     from eva.ui.formatter import print_error, print_success
@@ -69,9 +191,87 @@ def set_model_cmd(
         print_error(f"Provider '{provider}' not found. Available providers: {', '.join(config.providers.keys())}")
         raise typer.Exit(1)
 
+    if not force:
+        known = _get_known_models_for_provider(provider)
+        if known:
+            valid_ids = set()
+            for m in known:
+                mid = m.get("id", "")
+                if mid:
+                    valid_ids.add(mid)
+                    if mid.startswith("models/"):
+                        valid_ids.add(mid.removeprefix("models/"))
+                    else:
+                        valid_ids.add(f"models/{mid}")
+            if model not in valid_ids:
+                print_error(
+                    f"Model '{model}' is not a recognized model for provider '{provider}'. Use --force to override."
+                )
+                raise typer.Exit(1)
+
     config.providers[provider].model = model
     save_config(config)
     print_success(f"Model for provider '{provider}' set to '{model}'.")
+
+
+@config_app.command("models")
+def models_cmd(
+    provider: str | None = typer.Argument(None, help="Provider name (e.g. openrouter, groq, gemini, ollama, llamacpp)"),
+    provider_opt: str | None = typer.Option(None, "--provider", "-p", help="Provider name"),
+    json_output: bool = typer.Option(False, "--json", help="Output models in JSON format"),
+    refresh: bool = typer.Option(False, "--refresh", help="Force re-fetch from provider, bypassing cache"),
+    free_only: bool = typer.Option(False, "--free-only", help="Filter for free models where supported"),
+):
+    """List available models for configured or registered providers with 1-hour cache."""
+    import json
+
+    from rich.table import Table
+
+    from eva.providers import PROVIDER_MAP
+    from eva.ui.formatter import print_error, print_info
+
+    (_, _, _, _, _, _, load_config, _, _) = _get_config_funcs()
+    config = load_config()
+
+    target_provider = provider or provider_opt
+    available = sorted(set(PROVIDER_MAP.keys()) | set(config.providers.keys()))
+
+    if target_provider:
+        if target_provider not in available:
+            print_error(f"Unknown provider '{target_provider}'. Available providers: {', '.join(available)}")
+            raise typer.Exit(1)
+        providers_to_query = [target_provider]
+    else:
+        providers_to_query = available
+
+    results: dict[str, list[dict]] = {}
+    total_count = 0
+
+    for p in providers_to_query:
+        model_list, _ = _fetch_provider_models(p, free_only=free_only, refresh=refresh)
+        results[p] = model_list
+        total_count += len(model_list)
+
+    if json_output:
+        console.print(json.dumps(results, indent=2), soft_wrap=True)
+        return
+
+    if total_count == 0:
+        print_info("No models discovered. Ensure API keys or local servers are configured.")
+        return
+
+    table = Table(title=f"Discovered Models (Total: {total_count})")
+    table.add_column("Provider", style="cyan")
+    table.add_column("Model ID", style="yellow")
+    table.add_column("Display Name", style="white")
+
+    for p, model_list in results.items():
+        for m in model_list:
+            mid = m.get("id", "")
+            mname = m.get("name", "")
+            table.add_row(p, mid, mname)
+
+    console.print(table)
 
 
 @config_app.command("set-key")
@@ -392,6 +592,7 @@ def show_config():
         else "Provider Default"
     )
     table.add_row("Context Token Limit", context_limit_str)
+    table.add_row("Encrypt Sessions", str(config.general.encrypt_sessions))
 
     console.print(table)
     console.print()
@@ -435,3 +636,110 @@ def doctor():
             print_success(f"Provider '{name}': API key found ({source})")
         else:
             print_error(f"Provider '{name}': No API key set (keyring or {env_var})")
+
+
+audit_app = typer.Typer(help="Inspect and verify the cryptographic command audit log.")
+config_app.add_typer(audit_app, name="audit")
+
+
+@audit_app.command("verify")
+def audit_verify_cmd(
+    json_output: bool = typer.Option(False, "--json", help="Output verification result in JSON format"),
+):
+    """Verify cryptographic hash chain integrity of the command audit log."""
+    import json
+
+    from rich.table import Table
+
+    from eva.security.audit import verify_audit_chain
+    from eva.ui.formatter import print_error, print_success
+
+    result = verify_audit_chain()
+
+    if json_output:
+        data = {
+            "valid": result.is_valid,
+            "entries": result.count,
+            "first_timestamp": result.first_timestamp,
+            "last_timestamp": result.last_timestamp,
+            "broken_index": result.broken_index,
+            "message": result.message,
+        }
+        console.print(json.dumps(data, indent=2), soft_wrap=True)
+    else:
+        table = Table(title="Audit Log Hash Chain Verification")
+        table.add_column("Property", style="cyan")
+        table.add_column("Value", style="magenta")
+        status_str = "[green]VALID (Unbroken)[/green]" if result.is_valid else "[red]COMPROMISED / BROKEN[/red]"
+        table.add_row("Status", status_str)
+        table.add_row("Verified Records", str(result.count))
+        table.add_row("First Timestamp", str(result.first_timestamp or "N/A"))
+        table.add_row("Last Timestamp", str(result.last_timestamp or "N/A"))
+        if not result.is_valid:
+            table.add_row("Broken Sequence / Line", str(result.broken_index or "Unknown"))
+        table.add_row("Details", result.message)
+        console.print(table)
+        if result.is_valid:
+            print_success(result.message)
+        else:
+            print_error(result.message)
+
+    if not result.is_valid:
+        raise typer.Exit(1)
+
+
+@audit_app.command("show")
+def audit_show_cmd(
+    tail: int = typer.Option(20, "--tail", "-n", "--limit", help="Number of recent records to display"),
+    json_output: bool = typer.Option(False, "--json", help="Output records in JSON format"),
+):
+    """Show recent command audit log records with secret redaction."""
+    import json
+
+    from rich.table import Table
+
+    from eva.security.audit import _sanitize_dict, get_command_audit_log
+    from eva.ui.formatter import print_info
+
+    log_file = get_command_audit_log()
+    records = []
+    if log_file.exists() and log_file.stat().st_size > 0:
+        with open(log_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line_str = line.strip()
+                if line_str:
+                    try:
+                        record = json.loads(line_str)
+                        records.append(_sanitize_dict(record))
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        pass
+
+    if tail > 0:
+        records = records[-tail:]
+
+    if json_output:
+        console.print(json.dumps(records, indent=2), soft_wrap=True)
+        return
+
+    if not records:
+        print_info("Audit log is empty.")
+        return
+
+    table = Table(title=f"Command Audit Log (showing {len(records)} entries)")
+    table.add_column("Seq", style="cyan", justify="right")
+    table.add_column("Timestamp", style="dim")
+    table.add_column("Action / Command", style="yellow")
+    table.add_column("Hash Prefix", style="green")
+    table.add_column("Details", style="white")
+
+    for r in records:
+        seq = str(r.get("seq", "?"))
+        ts = str(r.get("timestamp", ""))
+        action = str(r.get("action") or r.get("command") or "")
+        h = str(r.get("hash", ""))[:12] + "..." if r.get("hash") else ""
+        details = ", ".join(
+            f"{k}={v}" for k, v in r.items() if k not in ("seq", "timestamp", "action", "command", "hash", "prev_hash")
+        )
+        table.add_row(seq, ts, action, h, details[:80])
+
+    console.print(table)

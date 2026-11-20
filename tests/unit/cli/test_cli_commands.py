@@ -121,13 +121,14 @@ def test_cli_work_unsafe_command_refusal():
         assert "Refusing to execute unsafe command" in res.output
 
 
-def test_cli_edit_command_apply(tmp_path):
+def test_cli_edit_command_apply(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     target = tmp_path / "foo.py"
     target.write_text("val = 1\n", encoding="utf-8")
-    diff_output = f"--- a/{target}\n+++ b/{target}\n@@ -1,1 +1,1 @@\n-val = 1\n+val = 2\n"
+    diff_output = "--- a/foo.py\n+++ b/foo.py\n@@ -1,1 +1,1 @@\n-val = 1\n+val = 2\n"
 
     with patch.object(app_module, "dispatch", return_value=iter([diff_output])):
-        res = runner.invoke(app, ["edit", "change val to 2", "-f", str(target), "--apply"])
+        res = runner.invoke(app, ["edit", "change val to 2", "-f", "foo.py", "--apply"])
         assert res.exit_code == 0
         assert "Patch applied." in res.output
         assert target.read_text(encoding="utf-8") == "val = 2\n"
@@ -190,7 +191,7 @@ def test_cli_budget_show():
 
 
 def test_cli_set_model_command():
-    res = runner.invoke(app, ["config", "set-model", "groq", "llama-3.3-70b-versatile"])
+    res = runner.invoke(app, ["config", "set-model", "groq", "llama-3.3-70b-versatile", "--force"])
     assert res.exit_code == 0
     assert "Model for provider 'groq' set to 'llama-3.3-70b-versatile'." in res.output
 

@@ -18,7 +18,6 @@ Explain what it means, highlight any errors, warnings, or important findings, an
 
 WORK_SYSTEM_PROMPT = """You are Eva, a terminal AI assistant.
 Your task is to convert the user's request into a single valid shell command.
-If the command typically requires elevated or root privileges (such as raw network scanning with nmap, system administration, package management, mounting, etc.), prepend `sudo ` to the command.
 Output ONLY the raw command, with no markdown formatting, no explanation, and no backticks.
 """
 

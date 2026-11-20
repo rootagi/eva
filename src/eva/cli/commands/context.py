@@ -18,3 +18,20 @@ def show_context():
         console.print(ctx.strip())
     else:
         print_info("No project context found (.eva/context.md is missing or empty).")
+
+
+@context_app.command("init")
+def init_context(
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing .eva/context.md"),
+):
+    """Scaffold .eva/context.md project context file from detected project stack."""
+    from eva.indexing.repo_index import init_context_md
+    from eva.ui.formatter import print_success, print_warning
+
+    target = Path.cwd() / ".eva" / "context.md"
+    if target.exists() and not force:
+        print_warning(f"Context file {target} already exists. Use --force to overwrite.")
+        return
+
+    path = init_context_md(Path.cwd(), force=force)
+    print_success(f"Project context initialized at {path}")

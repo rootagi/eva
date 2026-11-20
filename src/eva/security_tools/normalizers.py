@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from eva.security.redaction import redact_secrets
 from eva.security_tools.models import Finding
 from eva.security_tools.utils import read_json_file, sha256_text
+
+logger = logging.getLogger(__name__)
 
 SEVERITY_MAP = {
     "critical": "critical",
@@ -234,6 +237,8 @@ def normalize_syft(data: dict[str, Any], artifact_path: str | None = None) -> li
 
 
 def normalize_aegis(data: dict[str, Any], artifact_path: str | None = None) -> list[Finding]:
+    if not isinstance(data, dict):
+        return []
     findings: list[Finding] = []
     target = str(data.get("image") or data.get("image_path") or data.get("target") or "")
     if "sha256" in data or "hashes" in data:
@@ -251,41 +256,46 @@ def normalize_aegis(data: dict[str, Any], artifact_path: str | None = None) -> l
             )
         )
     for key in ("findings", "alerts", "anomalies", "issues"):
-        for item in data.get(key, []) or []:
-            findings.append(
-                make_finding(
-                    tool="aegis",
-                    rule_id=item.get("id") or item.get("rule_id") or key,
-                    title=item.get("title") or item.get("message") or "Aegis forensic finding",
-                    severity=item.get("severity", "info"),
-                    confidence=item.get("confidence", "unknown"),
-                    category=item.get("category", "forensics"),
-                    file=item.get("file") or target or None,
-                    line_start=item.get("line_start"),
-                    line_end=item.get("line_end"),
-                    target=item.get("target") or target or None,
-                    evidence=item.get("evidence") or item.get("details") or "",
-                    remediation=item.get("remediation", ""),
-                    references=item.get("references", []),
-                    artifact_path=artifact_path,
-                )
-            )
+        raw_items = data.get(key)
+        if isinstance(raw_items, list):
+            for item in raw_items:
+                if isinstance(item, dict):
+                    findings.append(
+                        make_finding(
+                            tool="aegis",
+                            rule_id=item.get("id") or item.get("rule_id") or key,
+                            title=item.get("title") or item.get("message") or "Aegis forensic finding",
+                            severity=item.get("severity", "info"),
+                            confidence=item.get("confidence", "unknown"),
+                            category=item.get("category", "forensics"),
+                            file=item.get("file") or target or None,
+                            line_start=item.get("line_start"),
+                            line_end=item.get("line_end"),
+                            target=item.get("target") or target or None,
+                            evidence=item.get("evidence") or item.get("details") or "",
+                            remediation=item.get("remediation", ""),
+                            references=item.get("references", []),
+                            artifact_path=artifact_path,
+                        )
+                    )
     binary_sec = data.get("binary") or data.get("structure")
     if isinstance(binary_sec, dict):
-        for anom in binary_sec.get("anomalies", []) or []:
-            findings.append(
-                make_finding(
-                    tool="aegis",
-                    rule_id="aegis.structure.anomaly",
-                    title=f"Structural anomaly: {anom}",
-                    severity="high" if "trailing" in str(anom).lower() else "medium",
-                    confidence="high",
-                    category="forensics",
-                    target=target,
-                    evidence=str(anom),
-                    artifact_path=artifact_path,
+        anomalies = binary_sec.get("anomalies")
+        if isinstance(anomalies, list):
+            for anom in anomalies:
+                findings.append(
+                    make_finding(
+                        tool="aegis",
+                        rule_id="aegis.structure.anomaly",
+                        title=f"Structural anomaly: {anom}",
+                        severity="high" if "trailing" in str(anom).lower() else "medium",
+                        confidence="high",
+                        category="forensics",
+                        target=target,
+                        evidence=str(anom),
+                        artifact_path=artifact_path,
+                    )
                 )
-            )
         if binary_sec.get("data_after_iend") or binary_sec.get("trailing_data"):
             findings.append(
                 make_finding(
@@ -443,10 +453,97 @@ def normalize_triage(data: dict[str, Any], artifact_path: str | None = None) -> 
     return findings
 
 
+def _safe_int(val: Any) -> int | None:
+    if val is None or val == "":
+        return None
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def _dict_to_finding(
+    item: dict[str, Any],
+    default_tool: str = "unknown",
+    artifact_path: str | None = None,
+) -> Finding:
+    tool = str(item.get("tool") or default_tool or "unknown")
+    rule = str(item.get("rule_id") or item.get("id") or "")
+    title = str(item.get("title") or item.get("name") or rule or "Security finding")
+    file_val = item.get("file") or item.get("path")
+    line_start = _safe_int(item.get("line_start") or item.get("line"))
+    line_end = _safe_int(item.get("line_end") or item.get("line"))
+    target = item.get("target")
+    evidence = item.get("evidence") or item.get("description") or ""
+    remediation = item.get("remediation") or ""
+    refs_raw = item.get("references") or []
+    if isinstance(refs_raw, list):
+        references = [str(r) for r in refs_raw if r]
+    elif isinstance(refs_raw, str) and refs_raw:
+        references = [refs_raw]
+    else:
+        references = []
+
+    # Fingerprint resolution: preserve explicit fingerprint or compute canonical SHA-256
+    fp = item.get("fingerprint")
+    if not fp:
+        loc = f"{file_val or target or ''}:{line_start or ''}:{line_end or ''}"
+        fp = fingerprint(tool, rule, title, loc, redact_secrets(str(evidence or ""))[:4000])
+
+    finding_id = str(item.get("id") or f"{tool}-{fp}")
+    conf = str(item.get("confidence", "unknown")).lower()
+    if conf not in {"high", "medium", "low", "unknown"}:
+        conf = "unknown"
+
+    return Finding(
+        id=finding_id,
+        tool=tool,
+        rule_id=rule,
+        title=redact_secrets(title),
+        severity=normalize_severity(item.get("severity")),  # type: ignore[arg-type]
+        confidence=conf,  # type: ignore[arg-type]
+        category=str(item.get("category", "")),
+        file=str(file_val) if file_val is not None else None,
+        line_start=line_start,
+        line_end=line_end,
+        target=str(target) if target is not None else None,
+        evidence=redact_secrets(str(evidence or ""))[:4000],
+        remediation=redact_secrets(str(remediation or "")),
+        references=references,
+        fingerprint=str(fp),
+        artifact_path=artifact_path,
+    )
+
+
+def _read_jsonl_file(path: Path | str) -> list[dict[str, Any]]:
+    records = []
+    with open(path, "r", encoding="utf-8-sig") as f:
+        for line in f:
+            line_str = line.strip()
+            if line_str:
+                records.append(json.loads(line_str))
+    return records
+
+
 def normalize_report(path: Path | str) -> list[Finding]:
     p = Path(path)
-    data = read_json_file(p)
     artifact_path = str(p)
+
+    if p.suffix.lower() == ".jsonl":
+        records = _read_jsonl_file(p)
+        return [_dict_to_finding(r, artifact_path=artifact_path) for r in records if isinstance(r, dict)]
+
+    try:
+        data = read_json_file(p)
+    except json.JSONDecodeError:
+        try:
+            records = _read_jsonl_file(p)
+            if records:
+                return [_dict_to_finding(r, artifact_path=artifact_path) for r in records if isinstance(r, dict)]
+        except (json.JSONDecodeError, OSError, ValueError, TypeError) as exc:
+            logger.debug("JSONL parse attempt failed for %s: %s", p, exc)
+        raise
+
     if isinstance(data, dict) and "runs" in data:
         return normalize_sarif(data, artifact_path)
     if isinstance(data, dict) and ("bomFormat" in data or ("artifacts" in data and "schema" in data)):
@@ -464,14 +561,34 @@ def normalize_report(path: Path | str) -> list[Finding]:
         or "triage" in str(data.get("tool", "")).lower()
     ):
         return normalize_triage(data, artifact_path)
-    if isinstance(data, dict) and ("image" in data or "image_path" in data or "steganography" in data):
+    if isinstance(data, dict) and (
+        "image" in data or "image_path" in data or "steganography" in data or data.get("tool") == "aegis"
+    ):
         return normalize_aegis(data, artifact_path)
     if isinstance(data, dict) and "findings" in data:
-        raw = data.get("findings", [])
-        if raw and all(isinstance(item, dict) and "fingerprint" in item for item in raw):
-            return [Finding.model_validate(item) for item in raw]
-        return normalize_aegis(data, artifact_path)
+        raw = data.get("findings")
+        # Guard against integer/non-list "findings" (e.g. summary.json: "findings": 10)
+        if isinstance(raw, list):
+            default_tool = str(data.get("tool", "unknown"))
+            return [
+                _dict_to_finding(item, default_tool=default_tool, artifact_path=artifact_path)
+                for item in raw
+                if isinstance(item, dict)
+            ]
+        logger.debug(
+            "Report %s contains non-list 'findings' field (%s); returning empty findings",
+            artifact_path,
+            type(raw).__name__,
+        )
+        return []
     if isinstance(data, list):
+        if data and all(
+            isinstance(item, dict)
+            and ("fingerprint" in item or "tool" in item)
+            and not ("RuleID" in item or "Secret" in item)
+            for item in data
+        ):
+            return [_dict_to_finding(item, artifact_path=artifact_path) for item in data if isinstance(item, dict)]
         return normalize_gitleaks(data, artifact_path)
     return []
 

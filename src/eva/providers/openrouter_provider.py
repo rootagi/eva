@@ -32,6 +32,20 @@ def get_free_models() -> list[dict]:
     return []
 
 
+def get_models() -> list[dict]:
+    import httpx
+
+    try:
+        resp = httpx.get("https://openrouter.ai/api/v1/models", timeout=5.0)
+        if resp.status_code == 200:
+            data = resp.json().get("data", [])
+            return [{"id": m.get("id"), "name": m.get("name", m.get("id"))} for m in data if m.get("id")]
+        logger.warning("OpenRouter model list fetch failed with HTTP %s", resp.status_code)
+    except (httpx.HTTPError, KeyError, ValueError, RuntimeError) as exc:
+        logger.warning("OpenRouter model list fetch failed: %s", exc)
+    return []
+
+
 class OpenRouterProvider(OpenAICompatibleProvider):
     name = "openrouter"
     base_url = "https://openrouter.ai/api/v1"

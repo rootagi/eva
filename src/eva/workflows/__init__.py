@@ -12,6 +12,7 @@ from eva.workflows.budget import (
 )
 from eva.workflows.chat_session import run_chat_session
 from eva.workflows.engine import (
+    Step,
     Workflow,
     WorkflowStep,
     list_workflows,
@@ -21,6 +22,7 @@ from eva.workflows.engine import (
 
 __all__ = [
     "Budget",
+    "Step",
     "UsageStats",
     "Workflow",
     "WorkflowStep",

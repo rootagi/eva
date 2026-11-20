@@ -19,6 +19,9 @@ def work(
     no_project_context: bool = typer.Option(
         False, "--no-project-context", help="Skip auto-loading .eva/context.md for this run"
     ),
+    allow_sudo: bool = typer.Option(
+        False, "--allow-sudo", help="Allow privilege escalation retry with sudo on command failure"
+    ),
 ):
     """Execute a command generated from natural language."""
     import shlex
@@ -184,16 +187,92 @@ def work(
                 "return_code": returncode,
             }
         )
+        from eva.workspace.session import record_command_history
+
+        record_command_history(
+            entry_type="work",
+            summary={
+                "query": query_str[:200],
+                "command": parsed.command[:200],
+                "status": "success" if returncode == 0 else "failed",
+                "return_code": returncode,
+            },
+            metadata={"allow_sudo": allow_sudo},
+        )
         if returncode != 0:
-            if not parsed.command.strip().startswith("sudo ") and typer.confirm(
-                "Command failed due to missing privileges. Retry with sudo?", default=True
-            ):
-                sudo_cmd = f"sudo {parsed.command}"
-                s_res = subprocess.run(sudo_cmd, shell=True, check=False)
-                if s_res.returncode != 0:
-                    raise typer.Exit(s_res.returncode)
-                return
-            raise typer.Exit(returncode)
+            if not allow_sudo:
+                raise typer.Exit(returncode)
+
+            if parsed.command.strip().startswith("sudo "):
+                raise typer.Exit(returncode)
+
+            sudo_cmd = f"sudo {parsed.command.strip()}"
+            try:
+                parsed_sudo = parse_safe_command(sudo_cmd, allowed_prefixes=config.general.allowed_command_prefixes)
+            except (UnsafeCommandError, CommandExtractionError) as exc:
+                append_command_audit(
+                    {
+                        "query": query_str,
+                        "command": sudo_cmd,
+                        "original_command": parsed.command,
+                        "original_argv": parsed.argv,
+                        "executed": False,
+                        "escalated": True,
+                        "blocked_reason": f"escalation_safety_check_failed: {exc}",
+                    }
+                )
+                print_error(f"Refusing to execute escalated command: {exc}")
+                raise typer.Exit(1) from exc
+
+            s_start_t = time.time()
+            if config.general.sandbox_risky_commands:
+                print_info("[Eva Sandbox] Executing escalated command in restricted sandbox environment...")
+                s_res = run_sandboxed(parsed_sudo.command, cwd=Path.cwd(), allow_shell_features=False)
+            else:
+                s_res = subprocess.run(
+                    parsed_sudo.argv,
+                    shell=False,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+
+            s_returncode = getattr(s_res, "returncode", 0)
+            s_stdout_str = s_res.stdout if isinstance(getattr(s_res, "stdout", None), str) else ""
+            s_stderr_str = s_res.stderr if isinstance(getattr(s_res, "stderr", None), str) else ""
+            if s_stdout_str:
+                console.print(s_stdout_str, end="")
+            if s_stderr_str:
+                err_console.print(s_stderr_str, end="")
+            s_output_str = s_stdout_str + ("\n" + s_stderr_str if s_stderr_str else "")
+
+            s_duration = time.time() - s_start_t
+
+            record_replay_event(
+                session_id=active_session,
+                command=parsed_sudo.command,
+                output=s_output_str,
+                exit_code=s_returncode,
+                duration_s=s_duration,
+                cwd=Path.cwd(),
+            )
+
+            append_command_audit(
+                {
+                    "query": query_str,
+                    "command": parsed_sudo.command,
+                    "argv": parsed_sudo.argv,
+                    "original_command": parsed.command,
+                    "original_argv": parsed.argv,
+                    "executed": True,
+                    "escalated": True,
+                    "return_code": s_returncode,
+                }
+            )
+
+            if s_returncode != 0:
+                raise typer.Exit(s_returncode)
+            return
     else:
         append_command_audit(
             {

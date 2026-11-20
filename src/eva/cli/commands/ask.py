@@ -30,6 +30,10 @@ def ask(
     force_include: list[Path] = typer.Option(
         None, "--force-include", help="Force inclusion of specific denylisted files for this repo packing run"
     ),
+    url: str | None = typer.Option(None, "--url", help="Fetch and include web page content as context"),
+    web_id: str | None = typer.Option(
+        None, "--web-id", help="Include indexed web document content from local FTS5 database by ID or URL"
+    ),
 ):
     """Ask a question, optionally including local file context or repo-wide packed context."""
     from eva.config import load_config as _load_config
@@ -125,8 +129,32 @@ def ask(
             tree_text = generate_tree(path)
             context += f"\n=== Directory tree: {path} ===\n{tree_text}\n"
 
+    if isinstance(url, str) and url:
+        from eva.security.redaction import redact_secrets
+        from eva.web.fetcher import fetch_url
+
+        try:
+            doc = fetch_url(url)
+            body = redact_secrets(doc.get("body_markdown", ""))
+            context += f"\n=== Web Content (Untrusted External Source: {url}) ===\n{body}\n"
+        except (OSError, RuntimeError, ValueError) as exc:
+            print_error(f"Failed to fetch --url {url}: {exc}")
+            raise typer.Exit(1)
+
+    if (isinstance(web_id, str) and web_id) or isinstance(web_id, int):
+        from eva.security.redaction import redact_secrets
+        from eva.web.index import WebIndex
+
+        idx = WebIndex()
+        doc = idx.get_document(web_id)
+        if not doc:
+            print_error(f"Web document not found in index for ID/URL: {web_id}")
+            raise typer.Exit(1)
+        body = redact_secrets(doc.get("body_markdown", ""))
+        context += f"\n=== Cached Web Document (ID {doc.get('id')}: {doc.get('url')}) ===\n{body}\n"
+
     if context and not repo:
-        max_tokens = config.general.context_token_limit or get_context_budget(provider_name, config)
+        max_tokens = get_context_budget(provider_name, config)
         context = trim_context(context, max_tokens=max_tokens)
 
     query_str = " ".join(query)
@@ -146,6 +174,13 @@ def ask(
         )
 
     had_error = emit_result(result, output_format, meta={"provider": provider_name})
+    from eva.workspace.session import record_command_history
+
+    record_command_history(
+        entry_type="ask",
+        summary={"query": " ".join(query)[:200], "status": "failed" if had_error else "success"},
+        metadata={"provider": provider_name, "files_count": len(files) if files else 0},
+    )
     if had_error:
         raise typer.Exit(1)
 
@@ -238,6 +273,11 @@ def investigate(
         "--force-include",
         help="Force inclusion of specific denylisted files for this run",
     ),
+    web: bool = typer.Option(
+        False,
+        "--web",
+        help="Enable web search and external page fetching tools during investigation",
+    ),
 ):
     """Agentic, multi-turn, query-driven repo exploration."""
     from eva.agent import StoppedReason
@@ -313,6 +353,7 @@ def investigate(
         max_turns=max_turns,
         on_tool_start=on_tool_start,
         force_include=force_include_set,
+        web_enabled=web if isinstance(web, bool) else False,
     )
 
     append_investigation_audit(
@@ -325,6 +366,19 @@ def investigate(
 
     if result.final_answer:
         print_markdown(result.final_answer)
+
+    from eva.workspace.session import record_command_history
+
+    record_command_history(
+        entry_type="investigate",
+        summary={
+            "query": query[:200],
+            "status": result.stopped_reason.value,
+            "turns": result.turns_used,
+            "tokens_used": result.tokens_used,
+        },
+        metadata={"provider": resolved_provider, "files_read": len(result.files_read)},
+    )
 
     if result.stopped_reason != StoppedReason.COMPLETED:
         print_info(f"Session ended: {result.stopped_reason.value}")

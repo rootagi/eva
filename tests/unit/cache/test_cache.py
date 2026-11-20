@@ -7,9 +7,19 @@ def test_cache_key_generation():
     key1 = generate_cache_key("model1", "sys", "user", "ctx")
     key2 = generate_cache_key("model1", "sys", "user", "ctx")
     key3 = generate_cache_key("model2", "sys", "user", "ctx")
+    key4 = generate_cache_key("model1", "sys", "user", "ctx", namespace="v1")
 
     assert key1 == key2
     assert key1 != key3
+    assert key1 != key4  # Namespace separation prevents collisions
+    assert key1.startswith("v2:")
+    assert key4.startswith("v1:")
+
+
+def test_cache_key_provider_model_namespace():
+    key_groq_llama8b = generate_cache_key("groq:llama-3.1-8b-instant", "sys", "user", "ctx")
+    key_groq_llama70b = generate_cache_key("groq:llama-3.3-70b-versatile", "sys", "user", "ctx")
+    assert key_groq_llama8b != key_groq_llama70b
 
 
 def test_cache_set_get_clear(monkeypatch, tmp_path):

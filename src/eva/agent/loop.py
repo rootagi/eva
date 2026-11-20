@@ -9,7 +9,9 @@ from typing import Any
 
 from eva.agent.tools import ToolResult, list_directory, read_file, search_code
 from eva.config import AppConfig
+from eva.indexing.tokenizer import count_tokens
 from eva.providers import Provider, TextDelta, ToolCall, ToolSpec, get_provider
+from eva.providers.retry import RetryingStream
 from eva.workflows.budget import check_and_increment
 
 
@@ -18,6 +20,7 @@ class StoppedReason(str, Enum):
     MAX_TURNS = "max_turns"
     BUDGET_EXHAUSTED = "budget_exhausted"
     REPEATED_CALL_DETECTED = "repeated_call_detected"
+    TOKEN_BUDGET_EXHAUSTED = "token_budget_exhausted"
 
 
 @dataclass
@@ -25,6 +28,7 @@ class InvestigationResult:
     final_answer: str | None
     files_read: list[str] = field(default_factory=list)
     turns_used: int = 0
+    tokens_used: int = 0
     stopped_reason: StoppedReason = StoppedReason.COMPLETED
 
 
@@ -63,7 +67,19 @@ EXPLORATION_TOOLS = [
                 "path": {
                     "type": "string",
                     "description": "Relative path to file",
-                }
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "1-based starting line number to read from",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "1-based ending line number to read to",
+                },
+                "max_bytes": {
+                    "type": "integer",
+                    "description": "Maximum number of bytes to read (default 100000)",
+                },
             },
             "required": ["path"],
         },
@@ -88,6 +104,41 @@ EXPLORATION_TOOLS = [
     ),
 ]
 
+WEB_TOOLS = [
+    ToolSpec(
+        name="web_search",
+        description="Search the web using SearXNG for documentation, error messages, or security advisories.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query string",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Category: general, it, science",
+                },
+            },
+            "required": ["query"],
+        },
+    ),
+    ToolSpec(
+        name="fetch_url",
+        description="Fetch external web page content as Markdown with SSRF protection.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "HTTP or HTTPS URL to fetch",
+                },
+            },
+            "required": ["url"],
+        },
+    ),
+]
+
 
 def _execute_tool_call(
     call: ToolCall, root: Path, force_include: set[str] = frozenset()
@@ -102,7 +153,17 @@ def _execute_tool_call(
 
     elif name == "read_file":
         path_arg = args.get("path", "")
-        res: ToolResult = read_file(root, path=path_arg, force_include=force_include)
+        start_line = args.get("start_line")
+        end_line = args.get("end_line")
+        max_bytes = args.get("max_bytes", 100000)
+        res: ToolResult = read_file(
+            root,
+            path=path_arg,
+            start_line=start_line,
+            end_line=end_line,
+            max_bytes=max_bytes,
+            force_include=force_include,
+        )
         if res.success:
             return res.content or "", True, path_arg
         else:
@@ -114,6 +175,21 @@ def _execute_tool_call(
         hits = search_code(root, pattern=pattern, path=path_arg, force_include=force_include)
         return json.dumps(hits, indent=2), False, None
 
+    elif name == "web_search":
+        from eva.agent.tools import web_search
+
+        query_arg = args.get("query", "")
+        category_arg = args.get("category", "general")
+        res = web_search(query_arg, category=category_arg)
+        return str(res.content or res.error or "No results"), False, None
+
+    elif name == "fetch_url":
+        from eva.agent.tools import fetch_url
+
+        url_arg = args.get("url", "")
+        res = fetch_url(url_arg)
+        return str(res.content or res.error or "No content"), False, None
+
     else:
         return f"Unknown tool: {name}", False, None
 
@@ -124,10 +200,13 @@ def run_investigation(
     config: AppConfig,
     provider_name: str,
     max_turns: int = 8,
+    max_tokens_budget: int | None = None,
     on_stream_text: Callable[[str], None] | None = None,
     on_tool_start: Callable[[str, dict], None] | None = None,
     provider_override: Provider | None = None,
     force_include: set[str] = frozenset(),
+    web_enabled: bool = False,
+    max_web_calls: int = 5,
 ) -> InvestigationResult:
     """Run an agentic multi-turn repository investigation loop."""
     provider = provider_override or get_provider(provider_name)
@@ -135,6 +214,7 @@ def run_investigation(
         return InvestigationResult(
             final_answer=None,
             stopped_reason=StoppedReason.COMPLETED,
+            tokens_used=0,
         )
 
     files_read_set: set[str] = set()
@@ -145,6 +225,12 @@ def run_investigation(
 
     last_turn_signatures: list[tuple[str, str]] = []
     accumulated_answer: str = ""
+    cumulative_tokens: int = 0
+    web_calls: int = 0
+
+    active_tools = list(EXPLORATION_TOOLS)
+    if web_enabled:
+        active_tools.extend(WEB_TOOLS)
 
     for turn in range(1, max_turns + 1):
         allowed = check_and_increment(
@@ -159,15 +245,34 @@ def run_investigation(
                 final_answer=final_ans,
                 files_read=sorted(files_read_set),
                 turns_used=turn,
+                tokens_used=cumulative_tokens,
                 stopped_reason=StoppedReason.BUDGET_EXHAUSTED,
+            )
+
+        # Count tokens in input messages for this turn
+        turn_input_tokens = sum(
+            count_tokens(str(m.get("content") or ""))
+            + (count_tokens(json.dumps(m.get("tool_calls"))) if m.get("tool_calls") else 0)
+            for m in messages
+        )
+        cumulative_tokens += turn_input_tokens
+
+        if max_tokens_budget is not None and cumulative_tokens >= max_tokens_budget:
+            note = f"\n\n[Note: Investigation ended early because cumulative token budget was exceeded ({cumulative_tokens} >= {max_tokens_budget}).]"
+            return InvestigationResult(
+                final_answer=accumulated_answer + note if accumulated_answer else note,
+                files_read=sorted(files_read_set),
+                turns_used=turn,
+                tokens_used=cumulative_tokens,
+                stopped_reason=StoppedReason.TOKEN_BUDGET_EXHAUSTED,
             )
 
         tool_calls: list[ToolCall] = []
         turn_text_chunks: list[str] = []
 
         try:
-            events = provider.generate_with_tools(messages, EXPLORATION_TOOLS, config)
-            for event in events:
+            retrying_events = RetryingStream(provider.generate_with_tools, messages, active_tools, config)
+            for event in retrying_events:
                 if isinstance(event, TextDelta):
                     turn_text_chunks.append(event.content)
                     if on_stream_text:
@@ -180,23 +285,43 @@ def run_investigation(
                 final_answer=err_ans,
                 files_read=sorted(files_read_set),
                 turns_used=turn,
+                tokens_used=cumulative_tokens,
                 stopped_reason=StoppedReason.COMPLETED,
             )
 
         turn_text = "".join(turn_text_chunks)
         if turn_text:
             accumulated_answer += turn_text
+            cumulative_tokens += count_tokens(turn_text)
+
+        if tool_calls:
+            for tc in tool_calls:
+                cumulative_tokens += count_tokens(tc.name) + count_tokens(json.dumps(tc.arguments))
+
+        if max_tokens_budget is not None and cumulative_tokens >= max_tokens_budget:
+            note = f"\n\n[Note: Investigation ended early because cumulative token budget was exceeded ({cumulative_tokens} >= {max_tokens_budget}).]"
+            return InvestigationResult(
+                final_answer=accumulated_answer + note if accumulated_answer else note,
+                files_read=sorted(files_read_set),
+                turns_used=turn,
+                tokens_used=cumulative_tokens,
+                stopped_reason=StoppedReason.TOKEN_BUDGET_EXHAUSTED,
+            )
 
         if not tool_calls:
             return InvestigationResult(
                 final_answer=accumulated_answer or turn_text,
                 files_read=sorted(files_read_set),
                 turns_used=turn,
+                tokens_used=cumulative_tokens,
                 stopped_reason=StoppedReason.COMPLETED,
             )
 
         current_turn_signatures = [
-            (tc.name, json.dumps(tc.arguments, sort_keys=True) if isinstance(tc.arguments, dict) else str(tc.arguments))
+            (
+                tc.name,
+                json.dumps(tc.arguments, sort_keys=True) if isinstance(tc.arguments, dict) else str(tc.arguments),
+            )
             for tc in tool_calls
         ]
         if current_turn_signatures and current_turn_signatures == last_turn_signatures:
@@ -205,6 +330,7 @@ def run_investigation(
                 final_answer=accumulated_answer + note if accumulated_answer else note,
                 files_read=sorted(files_read_set),
                 turns_used=turn,
+                tokens_used=cumulative_tokens,
                 stopped_reason=StoppedReason.REPEATED_CALL_DETECTED,
             )
         last_turn_signatures = current_turn_signatures
@@ -232,7 +358,17 @@ def run_investigation(
             if on_tool_start:
                 on_tool_start(tc.name, tc.arguments)
 
-            res_str, is_read, path_read = _execute_tool_call(tc, root, force_include=force_include)
+            if tc.name in ("web_search", "fetch_url"):
+                if web_calls >= max_web_calls:
+                    res_str = f"Error: Maximum web call limit of {max_web_calls} exceeded."
+                    is_read = False
+                    path_read = None
+                else:
+                    web_calls += 1
+                    res_str, is_read, path_read = _execute_tool_call(tc, root, force_include=force_include)
+            else:
+                res_str, is_read, path_read = _execute_tool_call(tc, root, force_include=force_include)
+
             if is_read and path_read:
                 files_read_set.add(path_read)
 
@@ -250,5 +386,6 @@ def run_investigation(
         final_answer=accumulated_answer + note if accumulated_answer else note,
         files_read=sorted(files_read_set),
         turns_used=max_turns,
+        tokens_used=cumulative_tokens,
         stopped_reason=StoppedReason.MAX_TURNS,
     )

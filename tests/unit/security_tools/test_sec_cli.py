@@ -304,3 +304,124 @@ def test_cli_zap_dry_run(tmp_path):
         ["sec", "zap", target, "--scope", str(active_scope), "--active", "--yes", "--dry-run"],
     )
     assert res_active.exit_code == 0
+
+
+def test_cli_bundle_create_verify_list_end_to_end(tmp_path):
+    sample = tmp_path / "sample.txt"
+    sample.write_text("forensic investigation evidence data", encoding="utf-8")
+    out_bundle = tmp_path / "case_01.evabnd"
+
+    # Create unencrypted bundle
+    res_create = runner.invoke(
+        app,
+        [
+            "sec",
+            "bundle",
+            "create",
+            str(sample),
+            "-o",
+            str(out_bundle),
+            "--case-id",
+            "CASE-999",
+            "--examiner",
+            "Agent Smith",
+            "--no-encrypt",
+        ],
+    )
+    assert res_create.exit_code == 0
+    assert "Evidence bundle created" in res_create.output
+    assert out_bundle.exists()
+
+    # List bundle
+    res_list = runner.invoke(app, ["sec", "bundle", "list", str(out_bundle)])
+    assert res_list.exit_code == 0
+    assert "sample.txt" in res_list.output
+    assert "1 file(s) in bundle" in res_list.output
+
+    # Verify bundle
+    res_verify = runner.invoke(app, ["sec", "bundle", "verify", str(out_bundle)])
+    assert res_verify.exit_code == 0
+    assert "verified successfully" in res_verify.output
+
+
+def test_cli_bundle_encrypted_roundtrip(tmp_path):
+    sample = tmp_path / "secret.log"
+    sample.write_text("unauthorized breach attempt", encoding="utf-8")
+    out_bundle = tmp_path / "encrypted_case.evabnd"
+    passphrase = "TopSecretPassphrase123!"
+
+    # Create encrypted bundle
+    res_create = runner.invoke(
+        app,
+        [
+            "sec",
+            "bundle",
+            "create",
+            str(sample),
+            "-o",
+            str(out_bundle),
+            "-p",
+            passphrase,
+        ],
+    )
+    assert res_create.exit_code == 0
+    assert out_bundle.exists()
+
+    # List encrypted bundle with passphrase
+    res_list = runner.invoke(app, ["sec", "bundle", "list", str(out_bundle), "-p", passphrase])
+    assert res_list.exit_code == 0
+    assert "secret.log" in res_list.output
+
+    # Verify encrypted bundle with passphrase
+    res_verify = runner.invoke(app, ["sec", "bundle", "verify", str(out_bundle), "-p", passphrase])
+    assert res_verify.exit_code == 0
+    assert "verified successfully" in res_verify.output
+
+
+def test_cli_triage_run_and_validate(tmp_path):
+    triage_out = tmp_path / "triage_dir"
+
+    # Run dry-run
+    res_dry = runner.invoke(app, ["sec", "triage", "run", "--output-dir", str(triage_out), "--dry-run"])
+    assert res_dry.exit_code == 0
+    assert "Planned triage run" in res_dry.output
+
+    # Create sample triage JSON file conforming to schema eva.triage.v1
+    sample_triage = tmp_path / "sample_triage.json"
+    sample_triage.write_text(
+        json.dumps(
+            {
+                "schema": "eva.triage.v1",
+                "tool": "unit-test-triage",
+                "host": {"hostname": "testhost"},
+                "collected_at": "2026-11-20T00:00:00Z",
+                "findings": [
+                    {
+                        "id": "find-001",
+                        "rule_id": "rule-001",
+                        "title": "Suspicious file detected",
+                        "category": "malware",
+                        "severity": "high",
+                        "confidence": "high",
+                        "evidence": "malicious string found",
+                        "remediation": "quarantine file",
+                        "file": "/tmp/evil",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # Validate valid file
+    res_val = runner.invoke(app, ["sec", "triage", "validate", str(sample_triage)])
+    assert res_val.exit_code == 0
+    assert "PASS" in res_val.output
+    assert "All triage reports conform to schema" in res_val.output
+
+    # Validate invalid file
+    bad_triage = tmp_path / "bad_triage.json"
+    bad_triage.write_text(json.dumps({"invalid": "schema"}), encoding="utf-8")
+    res_bad = runner.invoke(app, ["sec", "triage", "validate", str(bad_triage)])
+    assert res_bad.exit_code != 0
+    assert "FAIL" in res_bad.output
