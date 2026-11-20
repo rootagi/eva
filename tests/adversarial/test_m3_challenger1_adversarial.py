@@ -175,24 +175,24 @@ class TestWI12ChatREPLEncryptedTranscriptsAdversarial:
 
     def test_transcript_ciphertext_at_rest_on_disk(self, tmp_path):
         """Session transcript file saved with encrypt=True MUST contain Fernet ciphertext and no plaintext."""
-        secret_payload = "USER_SECRET_TOKEN=xyz987654321_CLASSIFIED"
+        token_payload = "USER_SECRET_TOKEN=xyz987654321_CLASSIFIED"
         transcript_file = tmp_path / "session.eva_chat"
 
-        save_session_transcript(transcript_file, secret_payload, encrypt=True)
+        save_session_transcript(transcript_file, token_payload, encrypt=True)
         assert transcript_file.exists()
 
         raw_bytes = transcript_file.read_bytes()
         assert raw_bytes.startswith(b"gAAAAA"), "Fernet token must start with gAAAAA"
-        assert secret_payload.encode("utf-8") not in raw_bytes, "Plaintext secret leaked in ciphertext file"
+        assert token_payload.encode("utf-8") not in raw_bytes, "Plaintext secret leaked in ciphertext file"
 
     def test_transcript_decryption_roundtrip(self, tmp_path):
         """Encrypted transcript must decrypt cleanly to original plaintext."""
-        secret_payload = "Conversation line 1\nLine 2 with special chars: 🤖 <test> & 'quotes'"
+        roundtrip_payload = "Conversation line 1\nLine 2 with special chars: 🤖 <test> & 'quotes'"
         transcript_file = tmp_path / "roundtrip.eva_chat"
 
-        save_session_transcript(transcript_file, secret_payload, encrypt=True)
+        save_session_transcript(transcript_file, roundtrip_payload, encrypt=True)
         decrypted = load_session_transcript(transcript_file)
-        assert decrypted == secret_payload
+        assert decrypted == roundtrip_payload
 
     def test_backward_compatible_plaintext_md_loading(self, tmp_path):
         """Existing legacy unencrypted .md transcripts must load without error."""

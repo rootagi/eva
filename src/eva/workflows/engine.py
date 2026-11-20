@@ -182,13 +182,13 @@ def _dispatch_hook(hook_list: list[Any], method_name: str, *args: Any, **kwargs:
                         fn(copied_args[0])
                     else:
                         raise
-            except (Exception, SystemExit) as exc:
+            except (Exception, SystemExit) as exc:  # noqa: BLE001
+                hook_name = getattr(h, "__name__", type(h).__name__)
                 logger.warning(
-                    "Workflow hook '%s' on %r failed with exception: %s",
+                    "Workflow hook '%s' on %s failed: %s",
                     method_name,
-                    h,
-                    exc,
-                    exc_info=True,
+                    hook_name,
+                    redact_secrets(str(exc)),
                 )
 
 

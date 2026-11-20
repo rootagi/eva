@@ -53,6 +53,8 @@ def save_session_transcript(
     encrypt: bool = True,
 ) -> Path:
     """Save session transcript to disk, encrypting with Fernet at rest by default."""
+    from eva.security.redaction import redact_secrets
+
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     raw = content.encode("utf-8")
@@ -63,7 +65,8 @@ def save_session_transcript(
         blob = fernet.encrypt(raw)
         p.write_bytes(blob)
     else:
-        p.write_text(content, encoding="utf-8")
+        # Sanitize clear-text transcripts before persisting to disk
+        p.write_text(redact_secrets(content), encoding="utf-8")
     try:
         p.chmod(0o600)
     except OSError:

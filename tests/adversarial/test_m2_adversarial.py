@@ -140,7 +140,7 @@ class TestWI06WI11WorkflowPluginsAdversarial:
         clear_workflow_hooks()
         captured_events: list[tuple[str, Any]] = []
 
-        class SecretObserverHook(WorkflowHooks):
+        class ObserverRedactionHook(WorkflowHooks):
             def on_step_start(self, step_id: str, step_data: dict[str, Any]) -> None:
                 captured_events.append(("step_start", step_data))
 
@@ -156,7 +156,7 @@ class TestWI06WI11WorkflowPluginsAdversarial:
         )
 
         try:
-            results = run_workflow(wf, interactive=False, hooks=[SecretObserverHook()])
+            results = run_workflow(wf, interactive=False, hooks=[ObserverRedactionHook()])
             assert len(results) == 1
             assert results[0]["status"] == "success"
 
