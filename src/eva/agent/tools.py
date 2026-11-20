@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import binascii
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,8 +70,8 @@ class ToolResult:
 
 def _is_within_root(target: Path, root: Path) -> bool:
     try:
-        resolved_target = target.resolve()
-        resolved_root = root.resolve()
+        resolved_target = Path(os.path.realpath(target))
+        resolved_root = Path(os.path.realpath(root))
         return resolved_target == resolved_root or resolved_root in resolved_target.parents
     except (ValueError, OSError):
         return False
@@ -197,9 +199,9 @@ def search_code(
     import shutil
     import subprocess
 
-    root_path = root.resolve()
+    root_path = Path(os.path.realpath(root))
     try:
-        search_root = (root_path / path).resolve()
+        search_root = Path(os.path.realpath(root_path / path))
     except (ValueError, OSError):
         return []
 
@@ -222,9 +224,19 @@ def search_code(
                 pattern,
                 str(search_root),
             ]
-            proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                timeout=10,
+            )
             if proc.returncode in (0, 1):
                 results: list[dict] = []
+                import base64
+
                 for line in (proc.stdout or "").splitlines():
                     if len(results) >= max_results:
                         break
@@ -237,9 +249,14 @@ def search_code(
                     m_data = data.get("data", {})
                     path_obj = m_data.get("path", {})
                     path_text = path_obj.get("text")
+                    if not path_text and "bytes" in path_obj:
+                        try:
+                            path_text = base64.b64decode(path_obj["bytes"]).decode("utf-8", errors="replace")
+                        except (ValueError, TypeError, binascii.Error):
+                            path_text = None
                     if not path_text:
                         continue
-                    match_path = Path(path_text).resolve()
+                    match_path = Path(os.path.realpath(path_text))
                     if not _is_within_root(match_path, root_path):
                         continue
                     try:
@@ -253,7 +270,14 @@ def search_code(
                     ):
                         continue
                     line_no = m_data.get("line_number", 1)
-                    line_text = m_data.get("lines", {}).get("text", "").rstrip("\r\n")
+                    line_obj = m_data.get("lines", {})
+                    line_text = line_obj.get("text")
+                    if line_text is None and "bytes" in line_obj:
+                        try:
+                            line_text = base64.b64decode(line_obj["bytes"]).decode("utf-8", errors="replace")
+                        except (ValueError, TypeError, binascii.Error):
+                            line_text = ""
+                    line_text = (line_text or "").rstrip("\r\n")
                     results.append(
                         {
                             "file": rel_str,
@@ -261,7 +285,8 @@ def search_code(
                             "text": redact_secrets(line_text, entropy_threshold=3.8),
                         }
                     )
-                return results
+                if results:
+                    return results
         except (subprocess.SubprocessError, OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
             logger.debug("Ripgrep search failed (%s), falling back to Python regex walk", exc)
 
@@ -283,14 +308,15 @@ def search_code(
         if len(results) >= max_results:
             break
 
-        if not file_path.is_file():
+        real_file = Path(os.path.realpath(file_path))
+        if not real_file.is_file():
             continue
 
-        if is_ignored(file_path, root_path, gitignore_spec):
+        if is_ignored(real_file, root_path, gitignore_spec):
             continue
 
         try:
-            rel_str = file_path.relative_to(root_path).as_posix()
+            rel_str = real_file.relative_to(root_path).as_posix()
         except ValueError:
             continue
 
