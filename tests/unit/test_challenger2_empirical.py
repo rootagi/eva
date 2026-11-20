@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -340,6 +341,7 @@ def test_wi04_atomic_rollback_on_write_failure(tmp_path):
     assert file2.read_text() == "def fn2():\n    return 2\n"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Directory chmod read-only is not supported on Windows")
 def test_wi04_atomic_rollback_on_readonly_target_directory(tmp_path):
     """Test atomic rollback when the directory of the second file is read-only (PermissionError)."""
     sub_ro = tmp_path / "readonly_sub"

@@ -225,7 +225,7 @@ def search_code(
             proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
             if proc.returncode in (0, 1):
                 results: list[dict] = []
-                for line in proc.stdout.splitlines():
+                for line in (proc.stdout or "").splitlines():
                     if len(results) >= max_results:
                         break
                     try:

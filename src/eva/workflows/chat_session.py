@@ -96,10 +96,10 @@ def load_session_transcript(path: Path | str) -> str:
 
             from eva.replay.crypto import get_fernet
 
-            return get_fernet().decrypt(raw).decode("utf-8")
+            return get_fernet().decrypt(raw).decode("utf-8").replace("\r\n", "\n")
         except (InvalidToken, ValueError, TypeError, OSError):
             pass
-    return raw.decode("utf-8", errors="replace")
+    return raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
 
 
 def dispatch_slash_command(session: ChatSession, command_line: str) -> bool:

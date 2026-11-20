@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 from eva.security.redaction import redact_secrets
 
 __all_redact__ = ["redact_secrets"]
+_history_lock = threading.Lock()
 
 
 @dataclass
@@ -244,10 +246,10 @@ def add_history(
             record["metadata"] = _deep_redact(metadata)
 
         serialized = json.dumps(record) + "\n"
-        with open(hist_file, "a", encoding="utf-8") as f:
-            f.write(serialized)
-
-        _prune_history_if_needed(hist_file)
+        with _history_lock:
+            with open(hist_file, "a", encoding="utf-8") as f:
+                f.write(serialized)
+            _prune_history_if_needed(hist_file)
     except (OSError, ValueError, TypeError, RuntimeError) as exc:
         logger.debug("Failed to record workspace history: %s", exc)
 

@@ -14,7 +14,11 @@ class KeyringUnavailableError(RuntimeError):
 
 
 def get_config_dir() -> Path:
-    d = Path(user_config_dir(APP_NAME))
+    custom = os.environ.get("EVA_CONFIG_DIR")
+    if custom:
+        d = Path(custom)
+    else:
+        d = Path(user_config_dir(APP_NAME))
     d.mkdir(parents=True, exist_ok=True)
     return d
 

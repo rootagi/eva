@@ -9,6 +9,7 @@ Stress-tests:
 from __future__ import annotations
 
 import stat
+import sys
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -368,6 +369,7 @@ class TestWI12ChatREPLEncryptedTranscriptsAdversarial:
         assert raw.startswith(b"gAAAAA")
         assert b"ConfidentialToken42" not in raw
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX 0600 permissions not supported on Windows")
     def test_transcript_file_permissions_0600(self, tmp_path):
         """Transcript files saved to disk must have restricted file permissions (0600)."""
         transcript_file = tmp_path / "secure_session.eva_chat"
@@ -377,6 +379,7 @@ class TestWI12ChatREPLEncryptedTranscriptsAdversarial:
         # 0o600 means readable and writable only by the owner
         assert mode == 0o600, f"Expected file mode 0o600, got {oct(mode)}"
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="readline module is not available on Windows")
     def test_history_file_creation_and_permissions_0600(self, tmp_path):
         """Readline history file must be created and have restricted 0600 permissions."""
         config = AppConfig()

@@ -1,5 +1,6 @@
 import email.utils
 import json
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -215,6 +216,7 @@ def test_adversarial_sec_ingest_dedup_1000_colliding_findings(tmp_path: Path):
     assert len(colliding_sample.references) > 1
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod 0o000 does not prevent read on Windows")
 def test_adversarial_sec_ingest_permission_and_keep_going(tmp_path: Path):
     """Stress test: Unreadable file halts when keep_going=False, but is bypassed when keep_going=True."""
     valid_file_1 = tmp_path / "report_1.json"

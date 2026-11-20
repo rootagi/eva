@@ -284,7 +284,7 @@ def scan_with_yara(
     timed_out = False
 
     for file_p in files_to_scan:
-        if deadline is not None and time.time() > deadline:
+        if deadline is not None and time.time() >= deadline:
             timed_out = True
             logger.warning("YARA scan deadline reached; halting early.")
             break
