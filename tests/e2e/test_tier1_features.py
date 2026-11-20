@@ -6,6 +6,7 @@ features in the Eva CLI feature inventory (WI-01 through WI-24).
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -594,15 +595,17 @@ def test_tier1_grounded_ask_url_and_web_id(runner: CliRunner):
     """WI-24: eva ask accepts --url and --web-id options."""
     result = runner.invoke(app, ["ask", "--help"])
     assert result.exit_code == 0
-    assert "--url" in result.output
-    assert "--web-id" in result.output
+    clean_output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", result.output)
+    assert "--url" in clean_output
+    assert "--web-id" in clean_output
 
 
 def test_tier1_grounded_investigate_web_tools(runner: CliRunner):
     """WI-24: eva investigate accepts --web flag."""
     result = runner.invoke(app, ["investigate", "--help"])
     assert result.exit_code == 0
-    assert "--web" in result.output
+    clean_output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", result.output)
+    assert "--web" in clean_output
 
 
 def test_tier1_chat_web_slash_commands():
